@@ -1,7 +1,13 @@
 ﻿import { createRoot } from 'react-dom/client';
 import { useState, useEffect, useRef } from 'react';
+import Echo from 'laravel-echo';
+import Pusher from 'pusher-js';
 
+// --- CONFIG ---
 const WIDGET_ID = 'enderun-chat-widget-container';
+
+// Echo için Pusher'ı window'a ata (Laravel Echo buna ihtiyaç duyar)
+window.Pusher = Pusher;
 
 // --- STYLES (Inline) ---
 const styles = {
@@ -21,7 +27,6 @@ function initWidget() {
     widgetRoot.id = WIDGET_ID;
     document.body.appendChild(widgetRoot);
 
-    // ID üzerinden scripti bul (Module scriptlerde currentScript çalışmaz)
     const scriptElement = document.getElementById('enderun-chat-script')
         || document.querySelector('script[src*="chat.js"]');
     const widgetToken = scriptElement?.getAttribute('data-token');
@@ -32,15 +37,48 @@ function initWidget() {
 
 function WidgetApp({ token }) {
     const [isOpen, setIsOpen] = useState(false);
-    const [messages, setMessages] = useState([{ id: 1, text: 'Merhaba 👋', sender: 'agent' }]);
+    const [messages, setMessages] = useState([{ id: 1, text: 'Merhaba 👋 Size nasıl yardımcı olabilirim?', sender: 'agent' }]);
     const [message, setMessage] = useState('');
+    const [status, setStatus] = useState('Bağlanıyor...'); // Bağlantı durumu testi
+
+    // --- REVERB CONNECTION ---
+    useEffect(() => {
+        // Echo Instance oluştur
+        const echo = new Echo({
+            broadcaster: 'reverb',
+            key: import.meta.env.VITE_REVERB_APP_KEY,
+            wsHost: import.meta.env.VITE_REVERB_HOST,
+            wsPort: import.meta.env.VITE_REVERB_PORT ?? 80,
+            wssPort: import.meta.env.VITE_REVERB_PORT ?? 443,
+            forceTLS: (import.meta.env.VITE_REVERB_SCHEME ?? 'https') === 'https',
+            enabledTransports: ['ws', 'wss'],
+        });
+
+        // Bağlantı durumunu dinle (Test amaçlı)
+        echo.connector.pusher.connection.bind('connected', () => {
+            console.log('✅ Reverb Connected!');
+            setStatus('Çevrimiçi 🟢');
+        });
+
+        echo.connector.pusher.connection.bind('disconnected', () => {
+            console.log('❌ Reverb Disconnected');
+            setStatus('Bağlantı Koptu 🔴');
+        });
+
+        // Cleanup
+        return () => {
+            echo.disconnect();
+        };
+    }, []);
 
     const toggle = () => setIsOpen(!isOpen);
 
     const send = (e) => {
         e.preventDefault();
         if (!message.trim()) return;
-        setMessages([...messages, { id: Date.now(), text: message, sender: 'visitor' }]);
+
+        // Şimdilik sadece local ekliyoruz
+        setMessages(prev => [...prev, { id: Date.now(), text: message, sender: 'visitor' }]);
         setMessage('');
     };
 
@@ -49,13 +87,16 @@ function WidgetApp({ token }) {
             {isOpen && (
                 <div style={styles.chatWindow}>
                     <div style={styles.header}>
-                        <span>Canlı Destek</span>
+                        <div>
+                            <div style={{ fontWeight: 'bold' }}>Canlı Destek</div>
+                            <div style={{ fontSize: '12px', opacity: 0.8 }}>{status}</div>
+                        </div>
                         <button onClick={toggle} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer' }}>✕</button>
                     </div>
                     <div style={styles.messagesArea}>
                         {messages.map(m => (
                             <div key={m.id} style={{ textAlign: m.sender === 'visitor' ? 'right' : 'left', margin: '5px 0' }}>
-                                <span style={{ background: m.sender === 'visitor' ? '#4F46E5' : 'white', color: m.sender === 'visitor' ? 'white' : 'black', padding: '8px', borderRadius: '8px', display: 'inline-block' }}>{m.text}</span>
+                                <span style={{ background: m.sender === 'visitor' ? '#4F46E5' : 'white', color: m.sender === 'visitor' ? 'white' : 'black', padding: '8px', borderRadius: '8px', display: 'inline-block', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>{m.text}</span>
                             </div>
                         ))}
                     </div>
