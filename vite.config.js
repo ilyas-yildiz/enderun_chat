@@ -6,8 +6,8 @@ export default defineConfig({
     plugins: [
         laravel({
             input: [
-                'resources/js/app.jsx', // Yönetim Paneli
-                'resources/js/widget.jsx' // Widget (YENİ)
+                'resources/js/app.jsx',
+                'resources/js/widget.jsx' // Ayrı giriş noktası
             ],
             refresh: true,
         }),
@@ -16,13 +16,10 @@ export default defineConfig({
     build: {
         rollupOptions: {
             output: {
-                // Dosya isimlerini sabitleme kuralı
                 entryFileNames: (assetInfo) => {
-                    // Eğer giriş dosyası 'widget' ise 'assets/chat.js' olarak çıkar
                     if (assetInfo.name === 'widget') {
-                        return 'assets/chat.js';
+                        return 'assets/chat.js'; // Sabit isim
                     }
-                    // Diğerleri standart (hashli) devam etsin
                     return 'assets/[name]-[hash].js';
                 },
             },
