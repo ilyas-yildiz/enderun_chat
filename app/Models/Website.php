@@ -10,7 +10,12 @@ use Illuminate\Support\Str;
 class Website extends Model
 {
     // Mass assignment koruması için doldurulabilir alanlar
-    protected $fillable = ['name', 'domain', 'settings'];
+    protected $fillable = [
+        'domain',
+        'name',
+        'widget_token', // <--- Bu eksikti!
+        'user_id',
+    ];
 
     // Settings sütunu JSON olduğu için array'e cast edelim
     protected $casts = [
