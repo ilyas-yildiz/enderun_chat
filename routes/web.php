@@ -1,9 +1,16 @@
 <?php
 
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\WebsiteController; // Yeni Controller'ımız
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
+
+/*
+|--------------------------------------------------------------------------
+| Web Routes
+|--------------------------------------------------------------------------
+*/
 
 Route::get('/', function () {
     return Inertia::render('Welcome', [
@@ -19,9 +26,14 @@ Route::get('/dashboard', function () {
 })->middleware(['auth', 'verified'])->name('dashboard');
 
 Route::middleware('auth')->group(function () {
+    // Profil İşlemleri
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+
+    // Site Yönetimi (SaaS)
+    // Sadece index (listeleme), store (kaydetme) ve destroy (silme) metodlarını kullanıyoruz.
+    Route::resource('websites', WebsiteController::class)->only(['index', 'store', 'destroy']);
 });
 
 require __DIR__.'/auth.php';

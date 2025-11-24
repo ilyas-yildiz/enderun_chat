@@ -30,6 +30,14 @@ export default function AuthenticatedLayout({ header, children }) {
                                 >
                                     Dashboard
                                 </NavLink>
+
+                                {/* YENİ EKLENEN: Siteler Linki (Desktop) */}
+                                <NavLink
+                                    href={route('websites.index')}
+                                    active={route().current('websites.index')}
+                                >
+                                    Siteler
+                                </NavLink>
                             </div>
                         </div>
 
@@ -133,6 +141,14 @@ export default function AuthenticatedLayout({ header, children }) {
                             active={route().current('dashboard')}
                         >
                             Dashboard
+                        </ResponsiveNavLink>
+
+                        {/* YENİ EKLENEN: Siteler Linki (Mobile) */}
+                        <ResponsiveNavLink
+                            href={route('websites.index')}
+                            active={route().current('websites.index')}
+                        >
+                            Siteler
                         </ResponsiveNavLink>
                     </div>
 
