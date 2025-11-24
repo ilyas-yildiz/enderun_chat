@@ -2,25 +2,26 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Visitor extends Model
 {
-    protected $fillable = ['visitor_uuid', 'name', 'email', 'geo_data', 'last_seen_at'];
+    use HasFactory;
 
-    protected $casts = [
-        'geo_data' => 'array',
-        'last_seen_at' => 'datetime',
+    protected $fillable = [
+        'website_id', // <--- BU SATIR HAYATİ ÖNEM TAŞIYOR
+        'uuid',
+        'name',
+        'email',
     ];
 
-    public function website(): BelongsTo
+    public function website()
     {
         return $this->belongsTo(Website::class);
     }
 
-    public function conversations(): HasMany
+    public function conversations()
     {
         return $this->hasMany(Conversation::class);
     }

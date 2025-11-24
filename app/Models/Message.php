@@ -2,21 +2,28 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 class Message extends Model
 {
-    protected $fillable = ['content', 'is_read'];
+    use HasFactory;
 
-    public function conversation(): BelongsTo
+    // Mass Assignment koruması için izin verilen alanlar
+    protected $fillable = [
+        'conversation_id',
+        'body',          // <--- Hatanın sebebi bu satırın olmamasıydı
+        'sender_type',   // <--- Bu da eksikti
+        'sender_id',     // <--- Bu da eksikti
+        'is_read',
+    ];
+
+    public function conversation()
     {
         return $this->belongsTo(Conversation::class);
     }
 
-    // Mesajı kimin gönderdiğini (User veya Visitor) otomatik çözer
-    public function sender(): MorphTo
+    public function sender()
     {
         return $this->morphTo();
     }

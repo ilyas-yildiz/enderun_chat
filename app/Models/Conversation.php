@@ -2,25 +2,30 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Conversation extends Model
 {
-    protected $fillable = ['status'];
+    use HasFactory;
 
-    public function website(): BelongsTo
+    protected $fillable = [
+        'website_id', // <--- BUNUN DA OLMASI ŞART
+        'visitor_id',
+        'status',
+    ];
+
+    public function website()
     {
         return $this->belongsTo(Website::class);
     }
 
-    public function visitor(): BelongsTo
+    public function visitor()
     {
         return $this->belongsTo(Visitor::class);
     }
 
-    public function messages(): HasMany
+    public function messages()
     {
         return $this->hasMany(Message::class);
     }

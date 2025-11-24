@@ -2,12 +2,35 @@
 import { useState, useEffect, useRef } from 'react';
 import Echo from 'laravel-echo';
 import Pusher from 'pusher-js';
+import axios from 'axios';
 
 // --- CONFIG ---
 const WIDGET_ID = 'enderun-chat-widget-container';
+const API_URL = import.meta.env.VITE_APP_URL || 'http://localhost';
 
-// Echo için Pusher'ı window'a ata (Laravel Echo buna ihtiyaç duyar)
 window.Pusher = Pusher;
+
+// --- UTILS ---
+function getVisitorUUID() {
+    let uuid = localStorage.getItem('chat_visitor_uuid');
+    // Eğer UUID yoksa veya geçerli bir UUID formatında değilse yenisini oluştur
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+    if (!uuid || !uuidRegex.test(uuid)) {
+        // Modern tarayıcılar için native UUID
+        if (crypto.randomUUID) {
+            uuid = crypto.randomUUID();
+        } else {
+            // Fallback (Eski usul)
+            uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+                var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+        localStorage.setItem('chat_visitor_uuid', uuid);
+    }
+    return uuid;
+}
 
 // --- STYLES (Inline) ---
 const styles = {
@@ -39,47 +62,56 @@ function WidgetApp({ token }) {
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState([{ id: 1, text: 'Merhaba 👋 Size nasıl yardımcı olabilirim?', sender: 'agent' }]);
     const [message, setMessage] = useState('');
-    const [status, setStatus] = useState('Bağlanıyor...'); // Bağlantı durumu testi
+    const [status, setStatus] = useState('Bağlanıyor...');
+    // useRef ile UUID'yi sabitle, her render'da değişmesin
+    const visitorUUID = useRef(getVisitorUUID()).current;
 
-    // --- REVERB CONNECTION ---
     useEffect(() => {
-        // Echo Instance oluştur
         const echo = new Echo({
             broadcaster: 'reverb',
             key: import.meta.env.VITE_REVERB_APP_KEY,
             wsHost: import.meta.env.VITE_REVERB_HOST,
             wsPort: import.meta.env.VITE_REVERB_PORT ?? 80,
             wssPort: import.meta.env.VITE_REVERB_PORT ?? 443,
-            forceTLS: (import.meta.env.VITE_REVERB_SCHEME ?? 'https') === 'https',
+            forceTLS: (import.meta.env.VITE_REVERB_SCHEME === 'https'),
             enabledTransports: ['ws', 'wss'],
         });
 
-        // Bağlantı durumunu dinle (Test amaçlı)
-        echo.connector.pusher.connection.bind('connected', () => {
-            console.log('✅ Reverb Connected!');
-            setStatus('Çevrimiçi 🟢');
-        });
+        echo.connector.pusher.connection.bind('connected', () => setStatus('Çevrimiçi 🟢'));
+        echo.connector.pusher.connection.bind('disconnected', () => setStatus('Bağlantı Koptu 🔴'));
 
-        echo.connector.pusher.connection.bind('disconnected', () => {
-            console.log('❌ Reverb Disconnected');
-            setStatus('Bağlantı Koptu 🔴');
-        });
-
-        // Cleanup
-        return () => {
-            echo.disconnect();
-        };
+        return () => echo.disconnect();
     }, []);
 
     const toggle = () => setIsOpen(!isOpen);
 
-    const send = (e) => {
+    const send = async (e) => {
         e.preventDefault();
         if (!message.trim()) return;
 
-        // Şimdilik sadece local ekliyoruz
-        setMessages(prev => [...prev, { id: Date.now(), text: message, sender: 'visitor' }]);
+        const currentMsg = message;
         setMessage('');
+
+        const tempId = Date.now();
+        setMessages(prev => [...prev, { id: tempId, text: currentMsg, sender: 'visitor' }]);
+
+        try {
+            await axios.post(`${API_URL}/api/chat/send`, {
+                widget_token: token,
+                visitor_uuid: visitorUUID,
+                message: currentMsg
+            });
+            console.log("Mesaj iletildi ✅");
+        } catch (error) {
+            console.error("Mesaj gönderilemedi ❌", error);
+
+            // HATANIN DETAYINI GÖSTERMEK İÇİN:
+            if (error.response && error.response.data && error.response.data.errors) {
+                alert("Hata: " + JSON.stringify(error.response.data.errors));
+            } else {
+                alert("Mesaj gönderilemedi! Konsola bakınız.");
+            }
+        }
     };
 
     return (
