@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
+use App\Events\MessageSent; // <--- EKLENDİ
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\Visitor;
@@ -12,13 +13,13 @@ use Illuminate\Support\Str;
 
 class ChatController extends Controller
 {
-  public function sendMessage(Request $request)
+    public function sendMessage(Request $request)
     {
         try {
             // 1. Validasyon
             $validated = $request->validate([
                 'widget_token' => 'required|uuid|exists:websites,widget_token',
-                'visitor_uuid' => 'required|uuid',
+                'visitor_uuid' => 'required|uuid', 
                 'message' => 'required|string|max:1000',
             ]);
 
@@ -53,13 +54,15 @@ class ChatController extends Controller
                 'sender_id' => $visitor->id,
             ]);
 
+            // 6. REAL-TIME BROADCAST (YAYINLA) <--- EKLENDİ
+            MessageSent::dispatch($message);
+
             return response()->json([
                 'success' => true,
                 'message' => $message
             ], 201);
 
         } catch (\Exception $e) {
-            // HATAYI YAKALA VE JSON OLARAK DÖNDÜR
             return response()->json([
                 'error' => true,
                 'message' => $e->getMessage(),
