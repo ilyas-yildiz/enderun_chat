@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\WebsiteController; // Yeni Controller'ımız
+use App\Http\Controllers\DashboardChatController; // <--- Import etmeyi unutma
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -34,6 +35,9 @@ Route::middleware('auth')->group(function () {
     // Site Yönetimi (SaaS)
     // Sadece index (listeleme), store (kaydetme) ve destroy (silme) metodlarını kullanıyoruz.
     Route::resource('websites', WebsiteController::class)->only(['index', 'store', 'destroy']);
+    // Sohbet Paneli Rotası
+    Route::get('/dashboard/chats', [DashboardChatController::class, 'index'])->name('chats.index');
+    Route::post('/dashboard/chats/{conversation}/reply', [DashboardChatController::class, 'reply'])->name('chats.reply');
 });
 
 require __DIR__.'/auth.php';
