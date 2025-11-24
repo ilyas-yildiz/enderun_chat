@@ -31,12 +31,19 @@ export default function AuthenticatedLayout({ header, children }) {
                                     Dashboard
                                 </NavLink>
 
-                                {/* YENİ EKLENEN: Siteler Linki (Desktop) */}
                                 <NavLink
                                     href={route('websites.index')}
                                     active={route().current('websites.index')}
                                 >
                                     Siteler
+                                </NavLink>
+
+                                {/* YENİ EKLENEN: Sohbetler Linki (Desktop) */}
+                                <NavLink
+                                    href={route('chats.index')}
+                                    active={route().current('chats.index')}
+                                >
+                                    Sohbetler
                                 </NavLink>
                             </div>
                         </div>
@@ -143,12 +150,19 @@ export default function AuthenticatedLayout({ header, children }) {
                             Dashboard
                         </ResponsiveNavLink>
 
-                        {/* YENİ EKLENEN: Siteler Linki (Mobile) */}
                         <ResponsiveNavLink
                             href={route('websites.index')}
                             active={route().current('websites.index')}
                         >
                             Siteler
+                        </ResponsiveNavLink>
+
+                        {/* YENİ EKLENEN: Sohbetler Linki (Mobile) */}
+                        <ResponsiveNavLink
+                            href={route('chats.index')}
+                            active={route().current('chats.index')}
+                        >
+                            Sohbetler
                         </ResponsiveNavLink>
                     </div>
 

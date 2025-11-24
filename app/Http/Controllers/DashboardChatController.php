@@ -1,0 +1,64 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Events\MessageSent;
+use App\Models\Conversation;
+use App\Models\Message;
+use App\Models\User; // Import
+use App\Models\Website; // Eklendi
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Inertia\Inertia;
+
+class DashboardChatController extends Controller
+{
+ public function index()
+    {
+        // Adminin sitesini bul (Dinlemek için ID lazım)
+        $website = Website::where('user_id', Auth::id())->first();
+
+        $conversations = Conversation::with(['visitor', 'messages'])
+            ->whereHas('messages')
+            ->where('website_id', $website->id ?? 0) // Sadece bu sitenin sohbetleri
+            ->latest('updated_at')
+            ->get();
+
+        return Inertia::render('Chats/Index', [
+            'conversations' => $conversations,
+            'website_id' => $website->id ?? null, // Frontend'e gönderiyoruz
+        ]);
+    }
+
+    public function show($id)
+    {
+        // Tekil sohbet detayını getirmek için (İleride kullanacağız, şimdilik dursun)
+        $conversation = Conversation::with(['visitor', 'messages'])->findOrFail($id);
+        
+        return response()->json($conversation);
+    }
+
+    public function reply(Request $request, Conversation $conversation)
+    {
+        $validated = $request->validate([
+            'message' => 'required|string|max:1000',
+        ]);
+
+        // Mesajı Kaydet (Gönderen: Admin/User)
+        $message = $conversation->messages()->create([
+            'body' => $validated['message'],
+            'sender_type' => User::class, // Polymorphic
+            'sender_id' => Auth::id(),
+            'is_read' => true, // Kendi mesajımız okundu sayılır
+        ]);
+
+        // Konuşmanın güncellenme tarihini yenile (Listede yukarı çıksın)
+        $conversation->touch();
+
+        // Reverb'e Gönder
+        MessageSent::dispatch($message);
+
+        return back(); // Sayfada kal
+    }
+
+}

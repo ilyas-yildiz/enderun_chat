@@ -11,25 +11,29 @@ const API_URL = import.meta.env.VITE_APP_URL || 'http://localhost';
 window.Pusher = Pusher;
 
 // --- UTILS ---
-function getVisitorUUID() {
+function getStorageData() {
+    // LocalStorage'dan hem UUID'yi hem de Conversation ID'yi okuyalım
     let uuid = localStorage.getItem('chat_visitor_uuid');
-    // Eğer UUID yoksa veya geçerli bir UUID formatında değilse yenisini oluştur
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    let conversationId = localStorage.getItem('chat_conversation_id');
 
+    // UUID yoksa oluştur
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     if (!uuid || !uuidRegex.test(uuid)) {
-        // Modern tarayıcılar için native UUID
         if (crypto.randomUUID) {
             uuid = crypto.randomUUID();
         } else {
-            // Fallback (Eski usul)
             uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
                 var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
                 return v.toString(16);
             });
         }
         localStorage.setItem('chat_visitor_uuid', uuid);
+        // Yeni UUID demek yeni kullanıcı demek, eski conversation ID'yi sil
+        localStorage.removeItem('chat_conversation_id');
+        conversationId = null;
     }
-    return uuid;
+
+    return { uuid, conversationId };
 }
 
 // --- STYLES (Inline) ---
@@ -63,9 +67,13 @@ function WidgetApp({ token }) {
     const [messages, setMessages] = useState([{ id: 1, text: 'Merhaba 👋 Size nasıl yardımcı olabilirim?', sender: 'agent' }]);
     const [message, setMessage] = useState('');
     const [status, setStatus] = useState('Bağlanıyor...');
-    // useRef ile UUID'yi sabitle, her render'da değişmesin
-    const visitorUUID = useRef(getVisitorUUID()).current;
 
+    // UUID ve Conversation ID yönetimi
+    const storageData = useRef(getStorageData());
+    const visitorUUID = storageData.current.uuid;
+    const [conversationId, setConversationId] = useState(storageData.current.conversationId);
+
+    // --- REVERB BAĞLANTISI ---
     useEffect(() => {
         const echo = new Echo({
             broadcaster: 'reverb',
@@ -77,32 +85,31 @@ function WidgetApp({ token }) {
             enabledTransports: ['ws', 'wss'],
         });
 
-        // Bağlantı durumu
         echo.connector.pusher.connection.bind('connected', () => setStatus('Çevrimiçi 🟢'));
         echo.connector.pusher.connection.bind('disconnected', () => setStatus('Bağlantı Koptu 🔴'));
 
-        // --- DİNLEME (LISTENING) ---
-        // Kanal adı: App/Events/MessageSent.php içindeki kanal ile aynı olmalı
-        // Biz orada 'chat.{conversation_id}' dedik.
-        // Şimdilik test için conversation ID'si 1 olanı dinleyelim (Manuel Test)
-        // İleride burayı dinamik yapacağız.
-        echo.channel('chat.1')
-            .listen('.message.sent', (e) => {
-                console.log("📨 Yeni Mesaj Geldi:", e);
+        // Eğer bir Conversation ID'miz varsa o odayı dinle
+        if (conversationId) {
+            console.log(`📡 Dinleniyor: chat.${conversationId}`);
+            echo.channel(`chat.${conversationId}`)
+                .listen('.message.sent', (e) => {
+                    console.log("📨 Mesaj Geldi:", e);
+                    // Sadece karşıdan (Agent/Admin) gelen mesajları ekle
+                    // (Kendi mesajımızı zaten optimistic ekliyoruz)
+                    if (e.sender_type !== 'App\\Models\\Visitor') {
+                        setMessages(prev => [...prev, {
+                            id: e.id,
+                            text: e.body,
+                            sender: 'agent'
+                        }]);
+                    }
+                });
+        }
 
-                // Eğer mesajı ben atmadıysam listeye ekle
-                // (Kendi attığımızı zaten optimistic UI ile ekliyoruz)
-                if (e.sender_type !== 'App\\Models\\Visitor') {
-                    setMessages(prev => [...prev, {
-                        id: e.id,
-                        text: e.body,
-                        sender: 'agent' // Karşıdan gelen
-                    }]);
-                }
-            });
-
-        return () => echo.disconnect();
-    }, []);
+        return () => {
+            echo.disconnect();
+        };
+    }, [conversationId]); // Conversation ID değişirse (ilk mesajdan sonra) dinlemeyi başlat
 
     const toggle = () => setIsOpen(!isOpen);
 
@@ -117,20 +124,31 @@ function WidgetApp({ token }) {
         setMessages(prev => [...prev, { id: tempId, text: currentMsg, sender: 'visitor' }]);
 
         try {
-            await axios.post(`${API_URL}/api/chat/send`, {
+            const response = await axios.post(`${API_URL}/api/chat/send`, {
                 widget_token: token,
                 visitor_uuid: visitorUUID,
                 message: currentMsg
             });
+
+            // Backend'den dönen Conversation ID'yi yakala
+            if (response.data.message && response.data.message.conversation_id) {
+                const newConvId = response.data.message.conversation_id;
+
+                // Eğer ID yeni ise State'i ve Storage'ı güncelle
+                // Bu işlem useEffect'i tetikleyecek ve dinlemeyi başlatacak
+                if (conversationId != newConvId) {
+                    setConversationId(newConvId);
+                    localStorage.setItem('chat_conversation_id', newConvId);
+                }
+            }
             console.log("Mesaj iletildi ✅");
+
         } catch (error) {
             console.error("Mesaj gönderilemedi ❌", error);
-
-            // HATANIN DETAYINI GÖSTERMEK İÇİN:
             if (error.response && error.response.data && error.response.data.errors) {
                 alert("Hata: " + JSON.stringify(error.response.data.errors));
             } else {
-                alert("Mesaj gönderilemedi! Konsola bakınız.");
+                alert("Mesaj gönderilemedi!");
             }
         }
     };
