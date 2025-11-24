@@ -77,8 +77,29 @@ function WidgetApp({ token }) {
             enabledTransports: ['ws', 'wss'],
         });
 
+        // Bağlantı durumu
         echo.connector.pusher.connection.bind('connected', () => setStatus('Çevrimiçi 🟢'));
         echo.connector.pusher.connection.bind('disconnected', () => setStatus('Bağlantı Koptu 🔴'));
+
+        // --- DİNLEME (LISTENING) ---
+        // Kanal adı: App/Events/MessageSent.php içindeki kanal ile aynı olmalı
+        // Biz orada 'chat.{conversation_id}' dedik.
+        // Şimdilik test için conversation ID'si 1 olanı dinleyelim (Manuel Test)
+        // İleride burayı dinamik yapacağız.
+        echo.channel('chat.1')
+            .listen('.message.sent', (e) => {
+                console.log("📨 Yeni Mesaj Geldi:", e);
+
+                // Eğer mesajı ben atmadıysam listeye ekle
+                // (Kendi attığımızı zaten optimistic UI ile ekliyoruz)
+                if (e.sender_type !== 'App\\Models\\Visitor') {
+                    setMessages(prev => [...prev, {
+                        id: e.id,
+                        text: e.body,
+                        sender: 'agent' // Karşıdan gelen
+                    }]);
+                }
+            });
 
         return () => echo.disconnect();
     }, []);
