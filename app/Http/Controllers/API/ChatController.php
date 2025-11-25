@@ -105,4 +105,20 @@ class ChatController extends Controller
 
         return response()->noContent();
     }
+
+    public function config(Request $request)
+    {
+        $request->validate([
+            'widget_token' => 'required|exists:websites,widget_token',
+        ]);
+
+        $website = Website::where('widget_token', $request->widget_token)->firstOrFail();
+
+        return response()->json([
+            'color' => $website->widget_color,
+            'title' => $website->header_text,
+            'welcome' => $website->welcome_message,
+        ]);
+    }
+
 }
