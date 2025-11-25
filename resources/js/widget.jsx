@@ -131,6 +131,32 @@ function WidgetApp({ token }) {
         };
     }, [conversationId]);
 
+
+    // --- OKUNDU İŞARETLEME FONKSİYONU ---
+    const markMessagesAsRead = () => {
+        if (!conversationId) return;
+
+        // API'ye "Ben gördüm" isteği at
+        axios.post(`${API_URL}/api/chat/read`, {
+            widget_token: token,
+            conversation_id: conversationId
+        }).catch(err => {
+            // Sessiz hata (Kullanıcıya göstermeye gerek yok)
+            // console.error(err); 
+        });
+    };
+
+    // --- TETİKLEYİCİ: Pencere Açıldığında veya Yeni Mesaj Geldiğinde ---
+    useEffect(() => {
+        // Eğer pencere açıks en son mesaj 'agent' (admin) ise okundu olarak işaretle
+        if (isOpen && messages.length > 0) {
+            const lastMessage = messages[messages.length - 1];
+            if (lastMessage.sender === 'agent') {
+                markMessagesAsRead();
+            }
+        }
+    }, [isOpen, messages]); // Pencere durumu veya mesaj listesi değişince çalışır
+
     // --- INPUT HANDLER (YAZIYORUM SİNYALİ) ---
     const handleInputChange = (e) => {
         setMessage(e.target.value);

@@ -85,4 +85,24 @@ class ChatController extends Controller
 
         return response()->noContent();
     }
+
+    public function markAsRead(Request $request)
+    {
+        $validated = $request->validate([
+            'widget_token' => 'required|exists:websites,widget_token',
+            'conversation_id' => 'required|exists:conversations,id',
+        ]);
+
+        // Bu sohbetteki, ADMIN (User) tarafından atılmış ve henüz okunmamış mesajları bul
+        // ve hepsini 'okundu' yap.
+        \App\Models\Message::where('conversation_id', $validated['conversation_id'])
+            ->where('sender_type', \App\Models\User::class) // Sadece Admin mesajları
+            ->where('is_read', false)
+            ->update(['is_read' => true]);
+
+        // Admin paneline "Okundu" sinyali gönder
+        \App\Events\MessagesRead::dispatch($validated['conversation_id']);
+
+        return response()->noContent();
+    }
 }
