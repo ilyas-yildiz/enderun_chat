@@ -3,7 +3,7 @@ import { Head, useForm, router } from '@inertiajs/react';
 import { useState, useEffect, useRef } from 'react';
 import Echo from 'laravel-echo';
 import Pusher from 'pusher-js';
-import axios from 'axios'; // Axios eklendi
+import axios from 'axios';
 
 window.Pusher = Pusher;
 
@@ -25,7 +25,7 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
         message: '',
     });
 
-    // --- REVERB 1: Website Kanalını Dinle (Sidebar & Ses İçin) ---
+    // --- REVERB 1: Website Kanalını Dinle (Sidebar ve Ses İçin) ---
     useEffect(() => {
         if (!website_id) return;
 
@@ -48,7 +48,7 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                 if (e.sender_type === 'App\\Models\\Visitor') {
                     try {
                         notificationSound.current.currentTime = 0;
-                        notificationSound.current.play().catch(error => console.warn("Ses uyarısı:", error));
+                        notificationSound.current.play().catch(error => console.warn("Ses çalınamadı:", error));
                     } catch (err) {
                         console.error("Ses hatası:", err);
                     }
@@ -62,6 +62,9 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                         const chatToMove = { ...updatedList[existingChatIndex] };
                         chatToMove.messages = [...(chatToMove.messages || []), e];
                         chatToMove.updated_at = new Date().toISOString();
+                        // Mesajla birlikte gelen güncel ziyaretçi bilgisini de güncelle (örn: URL değişmiş olabilir)
+                        if (e.visitor) chatToMove.visitor = e.visitor;
+
                         updatedList.splice(existingChatIndex, 1);
                         updatedList.unshift(chatToMove);
                     } else {
@@ -76,19 +79,22 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                     return updatedList;
                 });
 
-                // Eğer mesaj o an açık olan sohbete aitse ekle
                 if (selectedChat && selectedChat.id === e.conversation_id) {
                     setLocalMessages(prev => {
                         if (prev.find(m => m.id === e.id)) return prev;
                         return [...prev, e];
                     });
+                    // Açık olan sohbetin ziyaretçi bilgisini de güncelle (Canlı URL takibi için)
+                    if (e.visitor) {
+                        setSelectedChat(prev => ({ ...prev, visitor: e.visitor }));
+                    }
                 }
             });
 
         return () => echo.leave(`website.${website_id}`);
     }, [website_id, selectedChat]);
 
-    // --- REVERB 2: Seçili Sohbeti Dinle (Typing & Read Receipts İçin) ---
+    // --- REVERB 2: Seçili Sohbeti Dinle ---
     useEffect(() => {
         if (!selectedChat) return;
 
@@ -102,7 +108,6 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
             enabledTransports: ['ws', 'wss'],
         });
 
-        // Chat Odasını Dinle
         echo.channel(`chat.${selectedChat.id}`)
             .listen('.client.typing', (e) => {
                 if (e.senderType === 'visitor') {
@@ -114,11 +119,8 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
             .listen('.message.sent', () => {
                 setIsVisitorTyping(false);
             })
-            // YENİ: OKUNDU BİLGİSİ DİNLEME
             .listen('.messages.read', () => {
-                console.log("👀 Ziyaretçi mesajları okudu");
                 setLocalMessages(prev => prev.map(msg => {
-                    // Sadece Admin mesajlarını güncelle
                     if (msg.sender_type !== 'App\\Models\\Visitor') {
                         return { ...msg, is_read: true };
                     }
@@ -141,7 +143,6 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [localMessages]);
 
-    // --- INPUT HANDLER ---
     const handleInputChange = (e) => {
         setData('message', e.target.value);
         if (!selectedChat) return;
@@ -153,7 +154,6 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
         }
     };
 
-    // --- SİLME İŞLEMİ ---
     const handleDeleteChat = (e, chatId) => {
         e.stopPropagation();
         if (confirm('Bu sohbeti silmek istediğinize emin misiniz?')) {
@@ -241,22 +241,72 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                         <div className="w-2/3 flex flex-col bg-white">
                             {selectedChat ? (
                                 <>
-                                    <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
-                                        <div>
-                                            <h3 className="font-bold text-gray-800">{selectedChat.visitor?.name}</h3>
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-xs text-green-600 flex items-center gap-1">
-                                                    <span className="w-2 h-2 bg-green-500 rounded-full"></span> Çevrimiçi
-                                                </span>
-                                                {isVisitorTyping && (
-                                                    <span className="text-xs text-gray-500 italic animate-pulse">
-                                                        yazıyor...
+                                    {/* --- GÜNCELLENEN HEADER (ZİYARETÇİ DETAYLARI) --- */}
+                                    <div className="border-b border-gray-200 bg-gray-50">
+                                        {/* Üst Kısım: İsim ve Durum */}
+                                        <div className="p-4 flex justify-between items-center">
+                                            <div>
+                                                <h3 className="font-bold text-gray-800 text-lg">{selectedChat.visitor?.name}</h3>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-xs text-green-600 flex items-center gap-1">
+                                                        <span className="w-2 h-2 bg-green-500 rounded-full"></span> Çevrimiçi
                                                     </span>
-                                                )}
+                                                    {isVisitorTyping && (
+                                                        <span className="text-xs text-gray-500 italic animate-pulse">
+                                                            yazıyor...
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </div>
+                                        </div>
+
+                                        {/* Alt Kısım: Teknik Detaylar (Ziyaretçi Kartı) */}
+                                        <div className="px-4 pb-3 flex flex-wrap gap-3 text-xs text-gray-500 border-t border-gray-200 pt-2 bg-white/50">
+                                            {/* Konum */}
+                                            <div className="flex items-center gap-1" title="Konum">
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                </svg>
+                                                <span>{selectedChat.visitor?.city || '-'}, {selectedChat.visitor?.country || '-'}</span>
+                                            </div>
+
+                                            {/* Cihaz / Tarayıcı */}
+                                            <div className="flex items-center gap-1" title="Cihaz">
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                                </svg>
+                                                <span>{selectedChat.visitor?.os} / {selectedChat.visitor?.browser}</span>
+                                            </div>
+
+                                            {/* IP Adresi */}
+                                            <div className="flex items-center gap-1" title="IP Adresi">
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+                                                </svg>
+                                                <span>{selectedChat.visitor?.ip_address}</span>
+                                            </div>
+
+                                            {/* Mevcut Sayfa (Link) */}
+                                            {selectedChat.visitor?.current_url && (
+                                                <div className="flex items-center gap-1 ml-auto" title="Şu an bulunduğu sayfa">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                                                    </svg>
+                                                    <a
+                                                        href={selectedChat.visitor.current_url}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="text-blue-600 hover:underline truncate max-w-[200px]"
+                                                    >
+                                                        {selectedChat.visitor.current_url}
+                                                    </a>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
 
+                                    {/* Mesaj Alanı */}
                                     <div className="flex-1 p-4 overflow-y-auto bg-gray-50 space-y-4">
                                         {localMessages.map((msg) => (
                                             <div key={msg.id} className={`flex ${msg.sender_type === 'App\\Models\\Visitor' ? 'justify-start' : 'justify-end'}`}>
@@ -269,16 +319,9 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                                                     <div className={`text-[10px] mt-1 flex items-center justify-end gap-1 ${msg.sender_type === 'App\\Models\\Visitor' ? 'text-gray-400' : 'text-indigo-200'}`}>
                                                         <span>{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
 
-                                                        {/* TİK İKONLARI (Sadece Admin Mesajlarında) */}
                                                         {msg.sender_type !== 'App\\Models\\Visitor' && (
                                                             <span title={msg.is_read ? "Okundu" : "İletildi"}>
-                                                                <svg
-                                                                    xmlns="http://www.w3.org/2000/svg"
-                                                                    // DEĞİŞİKLİK BURADA: text-lime-300 (Fosforlu Yeşil) yapıldı
-                                                                    className={`h-3 w-3 ${msg.is_read ? 'text-lime-300' : 'text-indigo-300'}`}
-                                                                    viewBox="0 0 20 20"
-                                                                    fill="currentColor"
-                                                                >
+                                                                <svg xmlns="http://www.w3.org/2000/svg" className={`h-3 w-3 ${msg.is_read ? 'text-lime-300' : 'text-indigo-300'}`} viewBox="0 0 20 20" fill="currentColor">
                                                                     <path d="M9 12.553L15.618 4.67a1 1 0 011.527 1.137l-7.394 8.8a1 1 0 01-1.503.027L4.767 11.21a1 1 0 011.414-1.415l2.819 2.758z" />
                                                                     <path d="M5 12.553L11.618 4.67a1 1 0 011.527 1.137l-7.394 8.8a1 1 0 01-1.503.027L0.767 11.21a1 1 0 011.414-1.415l2.819 2.758z" />
                                                                 </svg>

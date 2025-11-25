@@ -143,7 +143,8 @@ function WidgetApp({ token }) {
             const response = await axios.post(`${API_URL}/api/chat/send`, {
                 widget_token: token,
                 visitor_uuid: visitorUUID,
-                message: currentMsg
+                message: currentMsg,
+                current_url: window.location.href
             });
             if (response.data.message && response.data.message.conversation_id) {
                 const newConvId = response.data.message.conversation_id;

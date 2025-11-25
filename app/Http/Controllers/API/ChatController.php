@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
-use App\Events\MessageSent; // <--- EKLENDİ
+use App\Events\MessageSent;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\Visitor;
@@ -26,6 +26,11 @@ class ChatController extends Controller
             // 2. Siteyi Bul
             $website = Website::where('widget_token', $validated['widget_token'])->firstOrFail();
 
+            // --- ZİYARETÇİ DETAYLARINI AL ---
+            $ip = $request->ip();
+            $userAgent = $request->header('User-Agent');
+            $currentUrl = $request->input('current_url'); // Frontend'den gelen URL
+
             // 3. Ziyaretçiyi Bul veya Oluştur
             $visitor = Visitor::firstOrCreate(
                 [
@@ -37,6 +42,42 @@ class ChatController extends Controller
                     'email' => null,
                 ]
             );
+
+            // --- ZİYARETÇİ BİLGİLERİNİ GÜNCELLE ---
+            // Basit User-Agent Analizi
+            $browser = 'Diğer';
+            if (str_contains($userAgent, 'Chrome')) $browser = 'Chrome';
+            elseif (str_contains($userAgent, 'Firefox')) $browser = 'Firefox';
+            elseif (str_contains($userAgent, 'Safari') && !str_contains($userAgent, 'Chrome')) $browser = 'Safari';
+            elseif (str_contains($userAgent, 'Edge')) $browser = 'Edge';
+
+            $os = 'Diğer';
+            if (str_contains($userAgent, 'Windows')) $os = 'Windows';
+            elseif (str_contains($userAgent, 'Mac')) $os = 'MacOS';
+            elseif (str_contains($userAgent, 'Linux')) $os = 'Linux';
+            elseif (str_contains($userAgent, 'Android')) $os = 'Android';
+            elseif (str_contains($userAgent, 'iPhone') || str_contains($userAgent, 'iPad')) $os = 'iOS';
+
+        // --- KONUM BELİRLEME (GÜNCELLENDİ) ---
+            // Docker IP karmaşasını önlemek için direkt ortam kontrolü yapıyoruz.
+            if (app()->environment('local')) {
+                $city = 'Ankara (Local)';
+                $country = 'TR';
+            } else {
+                // TODO: Canlı sunucuda buraya 'stevebauman/location' paketi eklenecek.
+                $city = null;
+                $country = null;
+            }
+
+            $visitor->update([
+                'ip_address' => $ip,
+                'user_agent' => $userAgent,
+                'browser' => $browser,
+                'os' => $os,
+                'current_url' => $currentUrl,
+                'city' => $city,
+                'country' => $country,
+            ]);
 
             // 4. Konuşma Başlat
             $conversation = Conversation::firstOrCreate(
@@ -54,7 +95,7 @@ class ChatController extends Controller
                 'sender_id' => $visitor->id,
             ]);
 
-            // 6. REAL-TIME BROADCAST (YAYINLA) <--- EKLENDİ
+            // 6. REAL-TIME BROADCAST (YAYINLA)
             MessageSent::dispatch($message);
 
             return response()->json([
@@ -120,5 +161,4 @@ class ChatController extends Controller
             'welcome' => $website->welcome_message,
         ]);
     }
-
 }
