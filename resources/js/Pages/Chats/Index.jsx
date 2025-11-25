@@ -265,14 +265,23 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                                                     : 'bg-indigo-600 text-white'
                                                     }`}>
                                                     {msg.body}
+
                                                     <div className={`text-[10px] mt-1 flex items-center justify-end gap-1 ${msg.sender_type === 'App\\Models\\Visitor' ? 'text-gray-400' : 'text-indigo-200'}`}>
                                                         <span>{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
 
                                                         {/* TİK İKONLARI (Sadece Admin Mesajlarında) */}
                                                         {msg.sender_type !== 'App\\Models\\Visitor' && (
                                                             <span title={msg.is_read ? "Okundu" : "İletildi"}>
-                                                                {/* Çift Tik */}
-                                                                <span className={`font-bold ml-1 text-xs ${msg.is_read ? 'text-blue-300' : 'text-indigo-300'}`}>✓✓</span>
+                                                                <svg
+                                                                    xmlns="http://www.w3.org/2000/svg"
+                                                                    // DEĞİŞİKLİK BURADA: text-lime-300 (Fosforlu Yeşil) yapıldı
+                                                                    className={`h-3 w-3 ${msg.is_read ? 'text-lime-300' : 'text-indigo-300'}`}
+                                                                    viewBox="0 0 20 20"
+                                                                    fill="currentColor"
+                                                                >
+                                                                    <path d="M9 12.553L15.618 4.67a1 1 0 011.527 1.137l-7.394 8.8a1 1 0 01-1.503.027L4.767 11.21a1 1 0 011.414-1.415l2.819 2.758z" />
+                                                                    <path d="M5 12.553L11.618 4.67a1 1 0 011.527 1.137l-7.394 8.8a1 1 0 01-1.503.027L0.767 11.21a1 1 0 011.414-1.415l2.819 2.758z" />
+                                                                </svg>
                                                             </span>
                                                         )}
                                                     </div>
