@@ -12,6 +12,10 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
     const [localMessages, setLocalMessages] = useState([]);
     const messagesEndRef = useRef(null);
 
+    // SES DOSYASI REFERANSI
+    // Sayfa her render olduğunda tekrar tekrar yüklenmesin diye useRef kullanıyoruz
+    const notificationSound = useRef(new Audio('/sounds/notification.mp3'));
+
     const { data, setData, post, processing, reset } = useForm({
         message: '',
     });
@@ -34,6 +38,21 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
 
         echo.channel(`website.${website_id}`)
             .listen('.message.sent', (e) => {
+
+                // SES ÇALMA MANTIĞI 🔔
+                // Sadece mesajı gönderen "Ziyaretçi" ise çal.
+                // Kendi attığımız mesajda ses duymak istemeyiz.
+                if (e.sender_type === 'App\\Models\\Visitor') {
+                    try {
+                        // Tarayıcı politikaları gereği kullanıcı sayfaya hiç tıklamadıysa ses çalmayabilir.
+                        // catch bloğu bu hatayı yakalar ve uygulamanın çökmesini engeller.
+                        notificationSound.current.currentTime = 0; // Sesi başa sar (üst üste gelirse)
+                        notificationSound.current.play().catch(error => console.warn("Ses çalınamadı (Tarayıcı izni gerekebilir):", error));
+                    } catch (err) {
+                        console.error("Ses hatası:", err);
+                    }
+                }
+
                 setChatList((prevList) => {
                     const existingChatIndex = prevList.findIndex(c => c.id === e.conversation_id);
                     let updatedList = [...prevList];
@@ -77,18 +96,13 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [localMessages]);
 
-    // --- SİLME İŞLEMİ (GÜNCELLENDİ) ---
+    // --- SİLME İŞLEMİ ---
     const handleDeleteChat = (e, chatId) => {
-        // 1. Sohbetin seçilmesini engelle (Listeye tıklanmış gibi davranmasın)
         e.stopPropagation();
-
         if (confirm('Bu sohbeti silmek istediğinize emin misiniz?')) {
             router.delete(route('chats.destroy', chatId), {
                 onSuccess: () => {
-                    // Listeden kaldır
                     setChatList(prev => prev.filter(c => c.id !== chatId));
-
-                    // Eğer silinen sohbet şu an açıksa, sağ tarafı temizle
                     if (selectedChat && selectedChat.id === chatId) {
                         setSelectedChat(null);
                         setLocalMessages([]);
@@ -151,8 +165,6 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                                                     : '...'}
                                             </div>
 
-                                            {/* SİLME BUTONU (SOL LİSTEDE) */}
-                                            {/* Sadece mouse üzerine gelince (group-hover) veya mobilde görünsün */}
                                             <button
                                                 onClick={(e) => handleDeleteChat(e, chat.id)}
                                                 className="absolute bottom-3 right-3 text-gray-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100 p-1"
