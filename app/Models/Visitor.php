@@ -14,6 +14,13 @@ class Visitor extends Model
         'uuid',
         'name',
         'email',
+        'ip_address',
+        'user_agent',
+        'browser',
+        'os',
+        'country',
+        'city',
+        'current_url',
     ];
 
     public function website()
