@@ -77,4 +77,12 @@ class DashboardChatController extends Controller
         return to_route('chats.index'); // Sayfayı yenile
     }
 
+    public function typing(Conversation $conversation)
+    {
+        // Admin yazıyorsa senderType: 'user'
+        \App\Events\UserTyping::dispatch($conversation->id, 'user');
+
+        return response()->noContent();
+    }
+
 }

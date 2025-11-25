@@ -71,4 +71,18 @@ class ChatController extends Controller
             ], 500);
         }
     }
+
+    public function typing(Request $request)
+    {
+        $validated = $request->validate([
+            'widget_token' => 'required|exists:websites,widget_token',
+            'conversation_id' => 'required|exists:conversations,id',
+        ]);
+
+        // Olayı fırlat
+        // Ziyaretçi yazıyorsa senderType: 'visitor'
+        \App\Events\UserTyping::dispatch($validated['conversation_id'], 'visitor');
+
+        return response()->noContent();
+    }
 }
