@@ -25,7 +25,7 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
         message: '',
     });
 
-    // --- REVERB: Website Kanalını Dinle (Sidebar ve Ses İçin) ---
+    // --- REVERB 1: Website Kanalını Dinle (Sidebar & Ses İçin) ---
     useEffect(() => {
         if (!website_id) return;
 
@@ -48,7 +48,7 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                 if (e.sender_type === 'App\\Models\\Visitor') {
                     try {
                         notificationSound.current.currentTime = 0;
-                        notificationSound.current.play().catch(error => console.warn("Ses çalınamadı:", error));
+                        notificationSound.current.play().catch(error => console.warn("Ses uyarısı:", error));
                     } catch (err) {
                         console.error("Ses hatası:", err);
                     }
@@ -76,6 +76,7 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                     return updatedList;
                 });
 
+                // Eğer mesaj o an açık olan sohbete aitse ekle
                 if (selectedChat && selectedChat.id === e.conversation_id) {
                     setLocalMessages(prev => {
                         if (prev.find(m => m.id === e.id)) return prev;
@@ -87,7 +88,7 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
         return () => echo.leave(`website.${website_id}`);
     }, [website_id, selectedChat]);
 
-    // --- REVERB: Seçili Sohbeti Dinle (Yazıyor İndikatörü İçin) ---
+    // --- REVERB 2: Seçili Sohbeti Dinle (Typing & Read Receipts İçin) ---
     useEffect(() => {
         if (!selectedChat) return;
 
@@ -101,10 +102,9 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
             enabledTransports: ['ws', 'wss'],
         });
 
-        // Sohbet odasını dinle
+        // Chat Odasını Dinle
         echo.channel(`chat.${selectedChat.id}`)
             .listen('.client.typing', (e) => {
-                // Eğer yazan 'visitor' ise göster
                 if (e.senderType === 'visitor') {
                     setIsVisitorTyping(true);
                     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
@@ -112,8 +112,18 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                 }
             })
             .listen('.message.sent', () => {
-                // Mesaj gelince indikatörü kaldır
                 setIsVisitorTyping(false);
+            })
+            // YENİ: OKUNDU BİLGİSİ DİNLEME
+            .listen('.messages.read', () => {
+                console.log("👀 Ziyaretçi mesajları okudu");
+                setLocalMessages(prev => prev.map(msg => {
+                    // Sadece Admin mesajlarını güncelle
+                    if (msg.sender_type !== 'App\\Models\\Visitor') {
+                        return { ...msg, is_read: true };
+                    }
+                    return msg;
+                }));
             });
 
         return () => echo.disconnect();
@@ -123,7 +133,7 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
     useEffect(() => {
         if (selectedChat) {
             setLocalMessages(selectedChat.messages);
-            setIsVisitorTyping(false); // Sohbet değişince indikatörü sıfırla
+            setIsVisitorTyping(false);
         }
     }, [selectedChat]);
 
@@ -131,12 +141,11 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [localMessages]);
 
-    // --- INPUT HANDLER (Admin Yazıyor Sinyali) ---
+    // --- INPUT HANDLER ---
     const handleInputChange = (e) => {
         setData('message', e.target.value);
         if (!selectedChat) return;
 
-        // Throttle: 2 saniyede bir sinyal gönder
         const now = Date.now();
         if (now - lastTypingSentTime.current > 2000) {
             lastTypingSentTime.current = now;
@@ -239,8 +248,6 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                                                 <span className="text-xs text-green-600 flex items-center gap-1">
                                                     <span className="w-2 h-2 bg-green-500 rounded-full"></span> Çevrimiçi
                                                 </span>
-
-                                                {/* YAZIYOR İNDİKATÖRÜ (HEADER) */}
                                                 {isVisitorTyping && (
                                                     <span className="text-xs text-gray-500 italic animate-pulse">
                                                         yazıyor...
@@ -258,8 +265,16 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                                                     : 'bg-indigo-600 text-white'
                                                     }`}>
                                                     {msg.body}
-                                                    <div className={`text-[10px] mt-1 text-right ${msg.sender_type === 'App\\Models\\Visitor' ? 'text-gray-400' : 'text-indigo-200'}`}>
-                                                        {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                    <div className={`text-[10px] mt-1 flex items-center justify-end gap-1 ${msg.sender_type === 'App\\Models\\Visitor' ? 'text-gray-400' : 'text-indigo-200'}`}>
+                                                        <span>{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+
+                                                        {/* TİK İKONLARI (Sadece Admin Mesajlarında) */}
+                                                        {msg.sender_type !== 'App\\Models\\Visitor' && (
+                                                            <span title={msg.is_read ? "Okundu" : "İletildi"}>
+                                                                {/* Çift Tik */}
+                                                                <span className={`font-bold ml-1 text-xs ${msg.is_read ? 'text-blue-300' : 'text-indigo-300'}`}>✓✓</span>
+                                                            </span>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </div>
@@ -272,7 +287,6 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                                             <input
                                                 type="text"
                                                 value={data.message}
-                                                // onChange GÜNCELLENDİ
                                                 onChange={handleInputChange}
                                                 placeholder="Bir mesaj yazın..."
                                                 className="flex-1 border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
