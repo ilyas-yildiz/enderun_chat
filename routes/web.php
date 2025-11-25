@@ -38,6 +38,7 @@ Route::middleware('auth')->group(function () {
     // Sohbet Paneli Rotası
     Route::get('/dashboard/chats', [DashboardChatController::class, 'index'])->name('chats.index');
     Route::post('/dashboard/chats/{conversation}/reply', [DashboardChatController::class, 'reply'])->name('chats.reply');
+    Route::delete('/dashboard/chats/{conversation}', [DashboardChatController::class, 'destroy'])->name('chats.destroy');
 });
 
 require __DIR__.'/auth.php';

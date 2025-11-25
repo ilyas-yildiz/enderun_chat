@@ -1,5 +1,5 @@
 ﻿import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, useForm } from '@inertiajs/react';
+import { Head, useForm, router } from '@inertiajs/react';
 import { useState, useEffect, useRef } from 'react';
 import Echo from 'laravel-echo';
 import Pusher from 'pusher-js';
@@ -7,7 +7,6 @@ import Pusher from 'pusher-js';
 window.Pusher = Pusher;
 
 export default function ChatsIndex({ auth, conversations, website_id }) {
-    // Sohbet Listesini State'e çevirdik (Canlı güncelleme için)
     const [chatList, setChatList] = useState(conversations);
     const [selectedChat, setSelectedChat] = useState(null);
     const [localMessages, setLocalMessages] = useState([]);
@@ -17,7 +16,7 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
         message: '',
     });
 
-    // --- GLOBAL LISTENER: Website Kanalını Dinle (Sidebar İçin) ---
+    // --- REVERB: Website Kanalını Dinle ---
     useEffect(() => {
         if (!website_id) return;
 
@@ -35,31 +34,17 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
 
         echo.channel(`website.${website_id}`)
             .listen('.message.sent', (e) => {
-                console.log("🔔 Genel Bildirim:", e);
-
-                // Sohbet Listesini Güncelle
                 setChatList((prevList) => {
-                    // 1. Bu mesaj hangi sohbete ait?
                     const existingChatIndex = prevList.findIndex(c => c.id === e.conversation_id);
-
                     let updatedList = [...prevList];
 
                     if (existingChatIndex > -1) {
-                        // VAR OLAN SOHBET:
-                        // Sohbeti kopyala
                         const chatToMove = { ...updatedList[existingChatIndex] };
-
-                        // Mesajlar dizisini güncelle (Önizleme için)
-                        // Eğer messages dizisi yoksa oluştur, varsa sonuna ekle
                         chatToMove.messages = [...(chatToMove.messages || []), e];
-                        chatToMove.updated_at = new Date().toISOString(); // Tarihi güncelle
-
-                        // Listeden çıkar ve EN BAŞA ekle
+                        chatToMove.updated_at = new Date().toISOString();
                         updatedList.splice(existingChatIndex, 1);
                         updatedList.unshift(chatToMove);
                     } else {
-                        // YENİ SOHBET (Listede yoksa):
-                        // Yeni bir sohbet objesi oluştur ve başa ekle
                         const newChat = {
                             id: e.conversation_id,
                             visitor: e.visitor,
@@ -68,11 +53,9 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                         };
                         updatedList.unshift(newChat);
                     }
-
                     return updatedList;
                 });
 
-                // Eğer bu mesaj ŞU AN AÇIK olan sohbete aitse, mesaj alanını da güncelle
                 if (selectedChat && selectedChat.id === e.conversation_id) {
                     setLocalMessages(prev => {
                         if (prev.find(m => m.id === e.id)) return prev;
@@ -81,31 +64,44 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                 }
             });
 
-        return () => {
-            echo.leave(`website.${website_id}`);
-        };
-    }, [website_id, selectedChat]); // selectedChat değiştiğinde listener güncellensin ki if bloğu doğru çalışsın
+        return () => echo.leave(`website.${website_id}`);
+    }, [website_id, selectedChat]);
 
-    // --- SEÇİLİ SOHBET DEĞİŞİMİ ---
     useEffect(() => {
         if (selectedChat) {
             setLocalMessages(selectedChat.messages);
-            // Seçilince okundu olarak işaretleme (Opsiyonel: İleride API isteği atılabilir)
         }
     }, [selectedChat]);
 
-    // Scroll
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [localMessages]);
 
+    // --- SİLME İŞLEMİ (GÜNCELLENDİ) ---
+    const handleDeleteChat = (e, chatId) => {
+        // 1. Sohbetin seçilmesini engelle (Listeye tıklanmış gibi davranmasın)
+        e.stopPropagation();
+
+        if (confirm('Bu sohbeti silmek istediğinize emin misiniz?')) {
+            router.delete(route('chats.destroy', chatId), {
+                onSuccess: () => {
+                    // Listeden kaldır
+                    setChatList(prev => prev.filter(c => c.id !== chatId));
+
+                    // Eğer silinen sohbet şu an açıksa, sağ tarafı temizle
+                    if (selectedChat && selectedChat.id === chatId) {
+                        setSelectedChat(null);
+                        setLocalMessages([]);
+                    }
+                },
+                preserveScroll: true
+            });
+        }
+    };
+
     const handleSubmit = (e) => {
         e.preventDefault();
         if (!selectedChat) return;
-
-        // Optimistic UI: Mesajı hemen ekrana ve listeye ekle
-        // (Backend'den gelmesini beklemeden)
-        // Not: Reverb'den gelince ID çakışmasını handle ediyoruz zaten.
 
         post(route('chats.reply', selectedChat.id), {
             preserveScroll: true,
@@ -139,7 +135,7 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                                         <div
                                             key={chat.id}
                                             onClick={() => setSelectedChat(chat)}
-                                            className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-white transition ${selectedChat?.id === chat.id ? 'bg-white border-l-4 border-l-indigo-500' : ''}`}
+                                            className={`group p-4 border-b border-gray-100 cursor-pointer hover:bg-white transition relative ${selectedChat?.id === chat.id ? 'bg-white border-l-4 border-l-indigo-500' : ''}`}
                                         >
                                             <div className="flex justify-between items-start mb-1">
                                                 <span className={`font-semibold text-sm ${selectedChat?.id === chat.id ? 'text-indigo-700' : 'text-gray-800'}`}>
@@ -149,14 +145,23 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                                                     {new Date(chat.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                                 </span>
                                             </div>
-                                            <div className="text-xs text-gray-500 truncate flex justify-between">
-                                                <span>
-                                                    {chat.messages && chat.messages.length > 0
-                                                        ? chat.messages[chat.messages.length - 1].body
-                                                        : '...'}
-                                                </span>
-                                                {/* Yeni mesaj geldiyse bir belirteç konulabilir */}
+                                            <div className="text-xs text-gray-500 truncate pr-6">
+                                                {chat.messages && chat.messages.length > 0
+                                                    ? chat.messages[chat.messages.length - 1].body
+                                                    : '...'}
                                             </div>
+
+                                            {/* SİLME BUTONU (SOL LİSTEDE) */}
+                                            {/* Sadece mouse üzerine gelince (group-hover) veya mobilde görünsün */}
+                                            <button
+                                                onClick={(e) => handleDeleteChat(e, chat.id)}
+                                                className="absolute bottom-3 right-3 text-gray-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100 p-1"
+                                                title="Sohbeti Sil"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                </svg>
+                                            </button>
                                         </div>
                                     ))
                                 )}
