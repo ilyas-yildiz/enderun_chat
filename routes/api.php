@@ -10,3 +10,4 @@ Route::get('/user', function (Request $request) {
 
 // Chat Mesaj Gönderme Rotası (Public)
 Route::post('/chat/send', [ChatController::class, 'sendMessage']);
+Route::post('/chat/typing', [ChatController::class, 'typing']);

@@ -73,6 +73,11 @@ function WidgetApp({ token }) {
     const visitorUUID = storageData.current.uuid;
     const [conversationId, setConversationId] = useState(storageData.current.conversationId);
 
+    // YAZIYOR İNDİKATÖRÜ STATE'LERİ
+    const [isAgentTyping, setIsAgentTyping] = useState(false);
+    const typingTimeoutRef = useRef(null); // İndikatörü gizlemek için zamanlayıcı
+    const lastTypingSentTime = useRef(0); // API'yi floodlamamak için throttle zamanlayıcısı
+
     // --- REVERB BAĞLANTISI ---
     useEffect(() => {
         const echo = new Echo({
@@ -94,8 +99,11 @@ function WidgetApp({ token }) {
             echo.channel(`chat.${conversationId}`)
                 .listen('.message.sent', (e) => {
                     console.log("📨 Mesaj Geldi:", e);
+
+                    // Mesaj gelince "Yazıyor"u hemen kaldır
+                    setIsAgentTyping(false);
+
                     // Sadece karşıdan (Agent/Admin) gelen mesajları ekle
-                    // (Kendi mesajımızı zaten optimistic ekliyoruz)
                     if (e.sender_type !== 'App\\Models\\Visitor') {
                         setMessages(prev => [...prev, {
                             id: e.id,
@@ -103,13 +111,42 @@ function WidgetApp({ token }) {
                             sender: 'agent'
                         }]);
                     }
+                })
+                .listen('.client.typing', (e) => {
+                    // Eğer yazan 'user' (Admin) ise göster
+                    if (e.senderType === 'user') {
+                        setIsAgentTyping(true);
+
+                        // 3 saniye sonra otomatik gizle (Admin yazmayı bırakırsa diye)
+                        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+                        typingTimeoutRef.current = setTimeout(() => {
+                            setIsAgentTyping(false);
+                        }, 3000);
+                    }
                 });
         }
 
         return () => {
             echo.disconnect();
         };
-    }, [conversationId]); // Conversation ID değişirse (ilk mesajdan sonra) dinlemeyi başlat
+    }, [conversationId]);
+
+    // --- INPUT HANDLER (YAZIYORUM SİNYALİ) ---
+    const handleInputChange = (e) => {
+        setMessage(e.target.value);
+
+        if (!conversationId) return;
+
+        // Her tuşa basışta API'ye gitme, 2 saniyede bir git (Throttle)
+        const now = Date.now();
+        if (now - lastTypingSentTime.current > 2000) {
+            lastTypingSentTime.current = now;
+            axios.post(`${API_URL}/api/chat/typing`, {
+                widget_token: token,
+                conversation_id: conversationId
+            }).catch(err => console.error(err)); // Sessiz hata
+        }
+    };
 
     const toggle = () => setIsOpen(!isOpen);
 
@@ -135,7 +172,6 @@ function WidgetApp({ token }) {
                 const newConvId = response.data.message.conversation_id;
 
                 // Eğer ID yeni ise State'i ve Storage'ı güncelle
-                // Bu işlem useEffect'i tetikleyecek ve dinlemeyi başlatacak
                 if (conversationId != newConvId) {
                     setConversationId(newConvId);
                     localStorage.setItem('chat_conversation_id', newConvId);
@@ -170,9 +206,19 @@ function WidgetApp({ token }) {
                                 <span style={{ background: m.sender === 'visitor' ? '#4F46E5' : 'white', color: m.sender === 'visitor' ? 'white' : 'black', padding: '8px', borderRadius: '8px', display: 'inline-block', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>{m.text}</span>
                             </div>
                         ))}
+
+                        {/* YAZIYOR İNDİKATÖRÜ (SOL ALTTA) */}
+                        {isAgentTyping && (
+                            <div style={{ textAlign: 'left', margin: '5px 0' }}>
+                                <span style={{ background: '#f3f4f6', color: '#6b7280', padding: '8px', borderRadius: '8px', display: 'inline-block', fontSize: '12px', fontStyle: 'italic' }}>
+                                    Yazıyor...
+                                </span>
+                            </div>
+                        )}
                     </div>
                     <form style={styles.footer} onSubmit={send}>
-                        <input value={message} onChange={e => setMessage(e.target.value)} style={styles.input} placeholder="Mesaj..." />
+                        {/* onChange güncellendi */}
+                        <input value={message} onChange={handleInputChange} style={styles.input} placeholder="Mesaj..." />
                     </form>
                 </div>
             )}

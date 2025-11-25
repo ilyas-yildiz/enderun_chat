@@ -3,6 +3,7 @@ import { Head, useForm, router } from '@inertiajs/react';
 import { useState, useEffect, useRef } from 'react';
 import Echo from 'laravel-echo';
 import Pusher from 'pusher-js';
+import axios from 'axios'; // Axios eklendi
 
 window.Pusher = Pusher;
 
@@ -12,15 +13,19 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
     const [localMessages, setLocalMessages] = useState([]);
     const messagesEndRef = useRef(null);
 
+    // YAZIYOR İNDİKATÖRÜ STATE'LERİ
+    const [isVisitorTyping, setIsVisitorTyping] = useState(false);
+    const typingTimeoutRef = useRef(null);
+    const lastTypingSentTime = useRef(0);
+
     // SES DOSYASI REFERANSI
-    // Sayfa her render olduğunda tekrar tekrar yüklenmesin diye useRef kullanıyoruz
     const notificationSound = useRef(new Audio('/sounds/notification.mp3'));
 
     const { data, setData, post, processing, reset } = useForm({
         message: '',
     });
 
-    // --- REVERB: Website Kanalını Dinle ---
+    // --- REVERB: Website Kanalını Dinle (Sidebar ve Ses İçin) ---
     useEffect(() => {
         if (!website_id) return;
 
@@ -40,14 +45,10 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
             .listen('.message.sent', (e) => {
 
                 // SES ÇALMA MANTIĞI 🔔
-                // Sadece mesajı gönderen "Ziyaretçi" ise çal.
-                // Kendi attığımız mesajda ses duymak istemeyiz.
                 if (e.sender_type === 'App\\Models\\Visitor') {
                     try {
-                        // Tarayıcı politikaları gereği kullanıcı sayfaya hiç tıklamadıysa ses çalmayabilir.
-                        // catch bloğu bu hatayı yakalar ve uygulamanın çökmesini engeller.
-                        notificationSound.current.currentTime = 0; // Sesi başa sar (üst üste gelirse)
-                        notificationSound.current.play().catch(error => console.warn("Ses çalınamadı (Tarayıcı izni gerekebilir):", error));
+                        notificationSound.current.currentTime = 0;
+                        notificationSound.current.play().catch(error => console.warn("Ses çalınamadı:", error));
                     } catch (err) {
                         console.error("Ses hatası:", err);
                     }
@@ -86,15 +87,62 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
         return () => echo.leave(`website.${website_id}`);
     }, [website_id, selectedChat]);
 
+    // --- REVERB: Seçili Sohbeti Dinle (Yazıyor İndikatörü İçin) ---
+    useEffect(() => {
+        if (!selectedChat) return;
+
+        const echo = new Echo({
+            broadcaster: 'reverb',
+            key: import.meta.env.VITE_REVERB_APP_KEY,
+            wsHost: import.meta.env.VITE_REVERB_HOST,
+            wsPort: import.meta.env.VITE_REVERB_PORT ?? 80,
+            wssPort: import.meta.env.VITE_REVERB_PORT ?? 443,
+            forceTLS: (import.meta.env.VITE_REVERB_SCHEME === 'https'),
+            enabledTransports: ['ws', 'wss'],
+        });
+
+        // Sohbet odasını dinle
+        echo.channel(`chat.${selectedChat.id}`)
+            .listen('.client.typing', (e) => {
+                // Eğer yazan 'visitor' ise göster
+                if (e.senderType === 'visitor') {
+                    setIsVisitorTyping(true);
+                    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+                    typingTimeoutRef.current = setTimeout(() => setIsVisitorTyping(false), 3000);
+                }
+            })
+            .listen('.message.sent', () => {
+                // Mesaj gelince indikatörü kaldır
+                setIsVisitorTyping(false);
+            });
+
+        return () => echo.disconnect();
+
+    }, [selectedChat?.id]);
+
     useEffect(() => {
         if (selectedChat) {
             setLocalMessages(selectedChat.messages);
+            setIsVisitorTyping(false); // Sohbet değişince indikatörü sıfırla
         }
     }, [selectedChat]);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [localMessages]);
+
+    // --- INPUT HANDLER (Admin Yazıyor Sinyali) ---
+    const handleInputChange = (e) => {
+        setData('message', e.target.value);
+        if (!selectedChat) return;
+
+        // Throttle: 2 saniyede bir sinyal gönder
+        const now = Date.now();
+        if (now - lastTypingSentTime.current > 2000) {
+            lastTypingSentTime.current = now;
+            axios.post(route('chats.typing', selectedChat.id)).catch(console.error);
+        }
+    };
 
     // --- SİLME İŞLEMİ ---
     const handleDeleteChat = (e, chatId) => {
@@ -187,9 +235,18 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                                     <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
                                         <div>
                                             <h3 className="font-bold text-gray-800">{selectedChat.visitor?.name}</h3>
-                                            <span className="text-xs text-green-600 flex items-center gap-1">
-                                                <span className="w-2 h-2 bg-green-500 rounded-full"></span> Çevrimiçi
-                                            </span>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs text-green-600 flex items-center gap-1">
+                                                    <span className="w-2 h-2 bg-green-500 rounded-full"></span> Çevrimiçi
+                                                </span>
+
+                                                {/* YAZIYOR İNDİKATÖRÜ (HEADER) */}
+                                                {isVisitorTyping && (
+                                                    <span className="text-xs text-gray-500 italic animate-pulse">
+                                                        yazıyor...
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
 
@@ -197,8 +254,8 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                                         {localMessages.map((msg) => (
                                             <div key={msg.id} className={`flex ${msg.sender_type === 'App\\Models\\Visitor' ? 'justify-start' : 'justify-end'}`}>
                                                 <div className={`max-w-[70%] p-3 rounded-lg text-sm shadow-sm ${msg.sender_type === 'App\\Models\\Visitor'
-                                                        ? 'bg-white text-gray-800 border border-gray-200'
-                                                        : 'bg-indigo-600 text-white'
+                                                    ? 'bg-white text-gray-800 border border-gray-200'
+                                                    : 'bg-indigo-600 text-white'
                                                     }`}>
                                                     {msg.body}
                                                     <div className={`text-[10px] mt-1 text-right ${msg.sender_type === 'App\\Models\\Visitor' ? 'text-gray-400' : 'text-indigo-200'}`}>
@@ -215,7 +272,8 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                                             <input
                                                 type="text"
                                                 value={data.message}
-                                                onChange={e => setData('message', e.target.value)}
+                                                // onChange GÜNCELLENDİ
+                                                onChange={handleInputChange}
                                                 placeholder="Bir mesaj yazın..."
                                                 className="flex-1 border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
                                                 disabled={processing}
