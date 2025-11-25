@@ -15,6 +15,9 @@ class Website extends Model
         'name',
         'widget_token', // <--- Bu eksikti!
         'user_id',
+        'widget_color',
+        'header_text',
+        'welcome_message',
     ];
 
     // Settings sütunu JSON olduğu için array'e cast edelim

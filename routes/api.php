@@ -12,3 +12,4 @@ Route::get('/user', function (Request $request) {
 Route::post('/chat/send', [ChatController::class, 'sendMessage']);
 Route::post('/chat/typing', [ChatController::class, 'typing']);
 Route::post('/chat/read', [ChatController::class, 'markAsRead']);
+Route::get('/chat/config', [ChatController::class, 'config']);

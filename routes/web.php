@@ -35,6 +35,7 @@ Route::middleware('auth')->group(function () {
     // Site Yönetimi (SaaS)
     // Sadece index (listeleme), store (kaydetme) ve destroy (silme) metodlarını kullanıyoruz.
     Route::resource('websites', WebsiteController::class)->only(['index', 'store', 'destroy']);
+    Route::resource('websites', WebsiteController::class)->only(['index', 'store', 'destroy', 'edit', 'update']);
     // Sohbet Paneli Rotası
     Route::get('/dashboard/chats', [DashboardChatController::class, 'index'])->name('chats.index');
     Route::post('/dashboard/chats/{conversation}/reply', [DashboardChatController::class, 'reply'])->name('chats.reply');
