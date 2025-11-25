@@ -61,4 +61,20 @@ class DashboardChatController extends Controller
         return back(); // Sayfada kal
     }
 
+    public function destroy(Conversation $conversation)
+    {
+        // Güvenlik Kontrolü: Bu sohbet, adminin sitelerinden birine mi ait?
+        // Adminin sahibi olduğu sitelerin ID'lerini al
+        $userWebsiteIds = Website::where('user_id', Auth::id())->pluck('id')->toArray();
+
+        if (!in_array($conversation->website_id, $userWebsiteIds)) {
+            abort(403, 'Bu sohbeti silme yetkiniz yok.');
+        }
+
+        // Sohbeti ve bağlı mesajları sil (Cascade ayarı db'de varsa mesajlar otomatik gider)
+        $conversation->delete();
+
+        return to_route('chats.index'); // Sayfayı yenile
+    }
+
 }
