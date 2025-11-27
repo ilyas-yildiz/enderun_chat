@@ -25,7 +25,7 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
         message: '',
     });
 
-    // --- REVERB 1: Website Kanalını Dinle (Sidebar ve Ses İçin) ---
+    // --- REVERB 1: GLOBAL ---
     useEffect(() => {
         if (!website_id) return;
 
@@ -39,34 +39,26 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
             enabledTransports: ['ws', 'wss'],
         });
 
-        console.log(`🌍 Website Kanalı Dinleniyor: website.${website_id}`);
-
         echo.channel(`website.${website_id}`)
             .listen('.message.sent', (e) => {
-
-                // SES ÇALMA MANTIĞI 🔔
                 if (e.sender_type === 'App\\Models\\Visitor') {
                     try {
                         notificationSound.current.currentTime = 0;
-                        notificationSound.current.play().catch(error => console.warn("Ses çalınamadı:", error));
-                    } catch (err) {
-                        console.error("Ses hatası:", err);
-                    }
+                        notificationSound.current.play().catch(err => console.warn(err));
+                    } catch (err) { }
                 }
 
                 setChatList((prevList) => {
-                    const existingChatIndex = prevList.findIndex(c => c.id === e.conversation_id);
+                    const index = prevList.findIndex(c => c.id === e.conversation_id);
                     let updatedList = [...prevList];
 
-                    if (existingChatIndex > -1) {
-                        const chatToMove = { ...updatedList[existingChatIndex] };
-                        chatToMove.messages = [...(chatToMove.messages || []), e];
-                        chatToMove.updated_at = new Date().toISOString();
-                        // Mesajla birlikte gelen güncel ziyaretçi bilgisini de güncelle (örn: URL değişmiş olabilir)
-                        if (e.visitor) chatToMove.visitor = e.visitor;
-
-                        updatedList.splice(existingChatIndex, 1);
-                        updatedList.unshift(chatToMove);
+                    if (index > -1) {
+                        const chat = { ...updatedList[index] };
+                        chat.messages = [...(chat.messages || []), e];
+                        chat.updated_at = new Date().toISOString();
+                        if (e.visitor) chat.visitor = e.visitor;
+                        updatedList.splice(index, 1);
+                        updatedList.unshift(chat);
                     } else {
                         const newChat = {
                             id: e.conversation_id,
@@ -78,23 +70,12 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                     }
                     return updatedList;
                 });
-
-                if (selectedChat && selectedChat.id === e.conversation_id) {
-                    setLocalMessages(prev => {
-                        if (prev.find(m => m.id === e.id)) return prev;
-                        return [...prev, e];
-                    });
-                    // Açık olan sohbetin ziyaretçi bilgisini de güncelle (Canlı URL takibi için)
-                    if (e.visitor) {
-                        setSelectedChat(prev => ({ ...prev, visitor: e.visitor }));
-                    }
-                }
             });
 
         return () => echo.leave(`website.${website_id}`);
-    }, [website_id, selectedChat]);
+    }, [website_id]);
 
-    // --- REVERB 2: Seçili Sohbeti Dinle ---
+    // --- REVERB 2: LOCAL (SOHBET ODASI) ---
     useEffect(() => {
         if (!selectedChat) return;
 
@@ -109,15 +90,32 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
         });
 
         echo.channel(`chat.${selectedChat.id}`)
+            .listen('.message.sent', (e) => {
+                setIsVisitorTyping(false);
+
+                setLocalMessages(prev => {
+                    // 1. Eğer gelen mesajda temp_id varsa, yerel listede bu temp_id'ye sahip mesajı bul
+                    if (e.temp_id) {
+                        const match = prev.find(m => m.temp_id === e.temp_id);
+                        if (match) {
+                            // Eşleşme bulundu! Geçici mesajı sil, Gerçek mesajı yerine koy.
+                            return prev.map(m => m.temp_id === e.temp_id ? e : m);
+                        }
+                    }
+
+                    // 2. Normal ID kontrolü (Çift eklemeyi önle)
+                    if (prev.find(m => m.id === e.id)) return prev;
+
+                    // 3. Eşleşme yoksa yeni mesaj olarak ekle
+                    return [...prev, e];
+                });
+            })
             .listen('.client.typing', (e) => {
                 if (e.senderType === 'visitor') {
                     setIsVisitorTyping(true);
                     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
                     typingTimeoutRef.current = setTimeout(() => setIsVisitorTyping(false), 3000);
                 }
-            })
-            .listen('.message.sent', () => {
-                setIsVisitorTyping(false);
             })
             .listen('.messages.read', () => {
                 setLocalMessages(prev => prev.map(msg => {
@@ -134,7 +132,7 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
 
     useEffect(() => {
         if (selectedChat) {
-            setLocalMessages(selectedChat.messages);
+            setLocalMessages(selectedChat.messages || []);
             setIsVisitorTyping(false);
         }
     }, [selectedChat]);
@@ -150,7 +148,7 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
         const now = Date.now();
         if (now - lastTypingSentTime.current > 2000) {
             lastTypingSentTime.current = now;
-            axios.post(route('chats.typing', selectedChat.id)).catch(console.error);
+            axios.post(route('chats.typing', selectedChat.id)).catch(() => { });
         }
     };
 
@@ -172,11 +170,33 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        if (!selectedChat) return;
+        if (!selectedChat || !data.message.trim()) return;
 
-        post(route('chats.reply', selectedChat.id), {
-            preserveScroll: true,
-            onSuccess: () => reset(),
+        // Benzersiz geçici ID oluştur
+        const tempId = crypto.randomUUID();
+
+        const tempMsg = {
+            id: Date.now(), // React key için
+            temp_id: tempId, // Eşleştirme için
+            body: data.message,
+            sender_type: 'App\\Models\\User',
+            created_at: new Date().toISOString(),
+            is_read: true, // Admin kendi mesajını okumuş sayılır
+            conversation_id: selectedChat.id
+        };
+
+        setLocalMessages(prev => [...prev, tempMsg]);
+
+        const currentMsg = data.message;
+        setData('message', '');
+
+        // İsteği temp_id ile gönder
+        axios.post(route('chats.reply', selectedChat.id), {
+            message: currentMsg,
+            temp_id: tempId // <--- Backend'e bunu yolluyoruz
+        }).catch(err => {
+            console.error("Mesaj gitmedi", err);
+            alert("Mesaj gönderilemedi!");
         });
     };
 
@@ -241,9 +261,7 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                         <div className="w-2/3 flex flex-col bg-white">
                             {selectedChat ? (
                                 <>
-                                    {/* --- GÜNCELLENEN HEADER (ZİYARETÇİ DETAYLARI) --- */}
                                     <div className="border-b border-gray-200 bg-gray-50">
-                                        {/* Üst Kısım: İsim ve Durum */}
                                         <div className="p-4 flex justify-between items-center">
                                             <div>
                                                 <h3 className="font-bold text-gray-800 text-lg">{selectedChat.visitor?.name}</h3>
@@ -260,9 +278,7 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                                             </div>
                                         </div>
 
-                                        {/* Alt Kısım: Teknik Detaylar (Ziyaretçi Kartı) */}
                                         <div className="px-4 pb-3 flex flex-wrap gap-3 text-xs text-gray-500 border-t border-gray-200 pt-2 bg-white/50">
-                                            {/* Konum */}
                                             <div className="flex items-center gap-1" title="Konum">
                                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
@@ -270,24 +286,18 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                                                 </svg>
                                                 <span>{selectedChat.visitor?.city || '-'}, {selectedChat.visitor?.country || '-'}</span>
                                             </div>
-
-                                            {/* Cihaz / Tarayıcı */}
                                             <div className="flex items-center gap-1" title="Cihaz">
                                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                                                 </svg>
                                                 <span>{selectedChat.visitor?.os} / {selectedChat.visitor?.browser}</span>
                                             </div>
-
-                                            {/* IP Adresi */}
                                             <div className="flex items-center gap-1" title="IP Adresi">
                                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
                                                 </svg>
                                                 <span>{selectedChat.visitor?.ip_address}</span>
                                             </div>
-
-                                            {/* Mevcut Sayfa (Link) */}
                                             {selectedChat.visitor?.current_url && (
                                                 <div className="flex items-center gap-1 ml-auto" title="Şu an bulunduğu sayfa">
                                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -306,7 +316,6 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                                         </div>
                                     </div>
 
-                                    {/* Mesaj Alanı */}
                                     <div className="flex-1 p-4 overflow-y-auto bg-gray-50 space-y-4">
                                         {localMessages.map((msg) => (
                                             <div key={msg.id} className={`flex ${msg.sender_type === 'App\\Models\\Visitor' ? 'justify-start' : 'justify-end'}`}>

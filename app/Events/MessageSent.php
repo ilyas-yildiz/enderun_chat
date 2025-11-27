@@ -17,16 +17,17 @@ class MessageSent implements ShouldBroadcastNow
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
     public $message;
+    public $tempId; // <--- YENİ: Geçici ID
 
-    public function __construct(Message $message)
+    // Constructor'a tempId eklendi
+    public function __construct(Message $message, $tempId = null)
     {
         $this->message = $message;
+        $this->tempId = $tempId;
     }
 
     public function broadcastOn(): array
     {
-        // 1. Sohbet Odası (Detay sayfası için)
-        // 2. Website Kanalı (Dashboard listesi için)
         return [
             new Channel('chat.' . $this->message->conversation_id),
             new Channel('website.' . $this->message->conversation->website_id),
@@ -39,10 +40,10 @@ class MessageSent implements ShouldBroadcastNow
             'id' => $this->message->id,
             'body' => $this->message->body,
             'sender_type' => $this->message->sender_type,
-            'conversation_id' => $this->message->conversation_id, // Bunu ekledik ki listede hangisi olduğunu bulalım
+            'conversation_id' => $this->message->conversation_id,
             'created_at' => $this->message->created_at->toIso8601String(),
-            // Ziyaretçi bilgisini de gönderelim ki yeni sohbetse listede adı görünsün
-            'visitor' => $this->message->conversation->visitor, 
+            'visitor' => $this->message->conversation->visitor,
+            'temp_id' => $this->tempId, // <--- YENİ: Frontend'e geri gönderiyoruz
         ];
     }
     

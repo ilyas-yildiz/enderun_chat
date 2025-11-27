@@ -38,27 +38,26 @@ class DashboardChatController extends Controller
         return response()->json($conversation);
     }
 
-    public function reply(Request $request, Conversation $conversation)
+ public function reply(Request $request, Conversation $conversation)
     {
         $validated = $request->validate([
             'message' => 'required|string|max:1000',
+            'temp_id' => 'nullable|string', // <--- YENİ: Validasyon
         ]);
 
-        // Mesajı Kaydet (Gönderen: Admin/User)
         $message = $conversation->messages()->create([
             'body' => $validated['message'],
-            'sender_type' => User::class, // Polymorphic
+            'sender_type' => User::class,
             'sender_id' => Auth::id(),
-            'is_read' => true, // Kendi mesajımız okundu sayılır
+            'is_read' => true,
         ]);
 
-        // Konuşmanın güncellenme tarihini yenile (Listede yukarı çıksın)
         $conversation->touch();
 
-        // Reverb'e Gönder
-        MessageSent::dispatch($message);
+        // Temp ID'yi event'e pasla
+        MessageSent::dispatch($message, $request->input('temp_id'));
 
-        return back(); // Sayfada kal
+        return back();
     }
 
     public function destroy(Conversation $conversation)
