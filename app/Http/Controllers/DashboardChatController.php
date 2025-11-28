@@ -13,20 +13,21 @@ use Inertia\Inertia;
 
 class DashboardChatController extends Controller
 {
- public function index()
+public function index()
     {
-        // Adminin sitesini bul (Dinlemek için ID lazım)
-        $website = Website::where('user_id', Auth::id())->first();
+        // Adminin sahip olduğu TÜM site ID'lerini al
+        $websiteIds = Website::where('user_id', Auth::id())->pluck('id');
 
+        // Bu sitelere ait tüm sohbetleri getir
         $conversations = Conversation::with(['visitor', 'messages'])
+            ->whereIn('website_id', $websiteIds) // <--- DEĞİŞİKLİK BURADA (where -> whereIn)
             ->whereHas('messages')
-            ->where('website_id', $website->id ?? 0) // Sadece bu sitenin sohbetleri
             ->latest('updated_at')
             ->get();
 
         return Inertia::render('Chats/Index', [
             'conversations' => $conversations,
-            'website_id' => $website->id ?? null, // Frontend'e gönderiyoruz
+            // website_id artık göndermiyoruz, çünkü admin kendi ID'sini (auth.user.id) dinleyecek
         ]);
     }
 

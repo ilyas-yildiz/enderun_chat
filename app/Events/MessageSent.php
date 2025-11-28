@@ -26,12 +26,21 @@ class MessageSent implements ShouldBroadcastNow
         $this->tempId = $tempId;
     }
 
-    public function broadcastOn(): array
+  public function broadcastOn(): array
     {
-        return [
+        $channels = [
+            // 1. Sohbet Odası (Aktif sohbet için)
             new Channel('chat.' . $this->message->conversation_id),
-            new Channel('website.' . $this->message->conversation->website_id),
         ];
+
+        // 2. Sitenin Sahibi (Admin) Kanalı
+        // Admin, sahip olduğu tüm sitelerden gelen mesajları bu kanaldan duyacak
+        $adminId = $this->message->conversation->website->user_id;
+        if ($adminId) {
+            $channels[] = new Channel('App.Models.User.' . $adminId);
+        }
+
+        return $channels;
     }
 
     public function broadcastWith(): array

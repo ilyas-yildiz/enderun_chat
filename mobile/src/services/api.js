@@ -1,11 +1,10 @@
 ﻿import axios from 'axios';
 
-// DİKKAT: Buraya bilgisayarının yerel IP adresini yazmalısın.
-// Localhost mobilde çalışmaz!
-// Örnek: 'http://192.168.1.35'
-const LOCAL_IP = 'http://192.168.1.X'; // <--- BURAYI KENDİ IP ADRESİNLE DEĞİŞTİR
+// Ngrok'tan aldığın adresi buraya yapıştır (sonunda /api OLMASIN, aşağıda ekliyoruz)
+const PUBLIC_URL = 'https://preponderant-clustered-amber.ngrok-free.dev'; // DİKKAT: Ekran görüntüsündeki .dev uzantısı veya kopyaladığın tam adres neyse onu yaz.
+// Senin durumunda: 'https://preponderant-clustered-amber.ngrok-free.dev'
 
-const API_URL = `${LOCAL_IP}/api`;
+const API_URL = `${PUBLIC_URL}/api`;
 
 const api = axios.create({
     baseURL: API_URL,
@@ -15,14 +14,15 @@ const api = axios.create({
     },
 });
 
-// Reverb (Socket) için de host bilgisi lazım olacak, onu da dışarı açalım
 export const REVERB_CONFIG = {
     broadcaster: 'reverb',
-    key: '2nvnuk73vfnw7qv9kqvj', // .env dosyasındaki VITE_REVERB_APP_KEY ile aynı olmalı
-    wsHost: '192.168.1.X', // <--- BURAYI KENDİ IP ADRESİNLE DEĞİŞTİR (http:// olmadan)
-    wsPort: 8080,
+    key: '2nvnuk73vfnw7qv9kqvj',
+    // Reverb için şimdilik tünel adresinin "host" kısmını (https:// olmadan) yazalım.
+    // Eğer çalışmazsa tekrar IP'ye döneriz ama önce Login'i halledelim.
+    wsHost: 'preponderant-clustered-amber.ngrok-free.dev',
+    wsPort: 443, // Ngrok https üzerinden 443 kullanır
     wssPort: 443,
-    forceTLS: false,
+    forceTLS: true, // Https olduğu için true
     enabledTransports: ['ws', 'wss'],
 };
 
