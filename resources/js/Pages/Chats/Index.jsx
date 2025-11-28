@@ -7,7 +7,7 @@ import axios from 'axios';
 
 window.Pusher = Pusher;
 
-export default function ChatsIndex({ auth, conversations, website_id }) {
+export default function ChatsIndex({ auth, conversations }) {
     const [chatList, setChatList] = useState(conversations);
     const [selectedChat, setSelectedChat] = useState(null);
     const [localMessages, setLocalMessages] = useState([]);
@@ -25,9 +25,10 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
         message: '',
     });
 
-    // --- REVERB 1: GLOBAL ---
+    // --- REVERB 1: GLOBAL (Admin Kanalını Dinle) ---
     useEffect(() => {
-        if (!website_id) return;
+        // Admin kendi özel kanalını dinler (auth.user.id)
+        const userId = auth.user.id;
 
         const echo = new Echo({
             broadcaster: 'reverb',
@@ -39,8 +40,14 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
             enabledTransports: ['ws', 'wss'],
         });
 
-        echo.channel(`website.${website_id}`)
+        console.log(`👑 Admin Kanalı Dinleniyor: App.Models.User.${userId}`);
+
+        // Kanal adı Backend'deki ile birebir aynı olmalı
+        echo.channel(`App.Models.User.${userId}`)
             .listen('.message.sent', (e) => {
+                // ... (İçerik aynı kalacak: Ses çalma ve Liste güncelleme)
+
+                // SES ÇALMA
                 if (e.sender_type === 'App\\Models\\Visitor') {
                     try {
                         notificationSound.current.currentTime = 0;
@@ -48,6 +55,7 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                     } catch (err) { }
                 }
 
+                // LİSTE GÜNCELLEME
                 setChatList((prevList) => {
                     const index = prevList.findIndex(c => c.id === e.conversation_id);
                     let updatedList = [...prevList];
@@ -57,6 +65,7 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                         chat.messages = [...(chat.messages || []), e];
                         chat.updated_at = new Date().toISOString();
                         if (e.visitor) chat.visitor = e.visitor;
+
                         updatedList.splice(index, 1);
                         updatedList.unshift(chat);
                     } else {
@@ -72,8 +81,8 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                 });
             });
 
-        return () => echo.leave(`website.${website_id}`);
-    }, [website_id]);
+        return () => echo.leave(`App.Models.User.${userId}`);
+    }, [auth.user.id]);
 
     // --- REVERB 2: LOCAL (SOHBET ODASI) ---
     useEffect(() => {
