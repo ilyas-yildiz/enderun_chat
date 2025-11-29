@@ -9,14 +9,19 @@ class Message extends Model
 {
     use HasFactory;
 
-    // Mass Assignment koruması için izin verilen alanlar
     protected $fillable = [
         'conversation_id',
-        'body',          // <--- Hatanın sebebi bu satırın olmamasıydı
-        'sender_type',   // <--- Bu da eksikti
-        'sender_id',     // <--- Bu da eksikti
+        'body',
+        'sender_type',
+        'sender_id',
         'is_read',
+        // YENİ EKLENENLER:
+        'type',
+        'attachment_path',
     ];
+
+    // JSON çıktısında otomatik olarak 'attachment_url' alanını göster
+    protected $appends = ['attachment_url'];
 
     public function conversation()
     {
@@ -26,5 +31,16 @@ class Message extends Model
     public function sender()
     {
         return $this->morphTo();
+    }
+
+    // Dosyanın tam http://... adresini döndüren Accessor
+    public function getAttachmentUrlAttribute()
+    {
+        if ($this->attachment_path) {
+            // Storage::url YERİNE url() kullanıyoruz.
+            // Bu, 'http://site.com/attachments/dosya.jpg' döndürür.
+            return url($this->attachment_path);
+        }
+        return null;
     }
 }

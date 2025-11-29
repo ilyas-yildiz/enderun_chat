@@ -7,7 +7,7 @@ import axios from 'axios';
 
 window.Pusher = Pusher;
 
-export default function ChatsIndex({ auth, conversations }) {
+export default function ChatsIndex({ auth, conversations, website_id }) {
     const [chatList, setChatList] = useState(conversations);
     const [selectedChat, setSelectedChat] = useState(null);
     const [localMessages, setLocalMessages] = useState([]);
@@ -18,6 +18,10 @@ export default function ChatsIndex({ auth, conversations }) {
     const typingTimeoutRef = useRef(null);
     const lastTypingSentTime = useRef(0);
 
+    // DOSYA YÜKLEME STATE'LERİ (YENİ)
+    const [selectedFile, setSelectedFile] = useState(null);
+    const fileInputRef = useRef(null);
+
     // SES DOSYASI REFERANSI
     const notificationSound = useRef(new Audio('/sounds/notification.mp3'));
 
@@ -25,28 +29,33 @@ export default function ChatsIndex({ auth, conversations }) {
         message: '',
     });
 
-    // --- REVERB 1: GLOBAL (Admin Kanalını Dinle) ---
+    // Vite env değişkenlerine güvenli erişim
+    const getEnv = (key) => {
+        try {
+            return (import.meta && import.meta.env) ? import.meta.env[key] : undefined;
+        } catch (e) {
+            return undefined;
+        }
+    };
+
+    // --- REVERB 1: GLOBAL LISTENER (Sidebar ve Ses) ---
     useEffect(() => {
-        // Admin kendi özel kanalını dinler (auth.user.id)
         const userId = auth.user.id;
 
         const echo = new Echo({
             broadcaster: 'reverb',
-            key: import.meta.env.VITE_REVERB_APP_KEY,
-            wsHost: import.meta.env.VITE_REVERB_HOST,
-            wsPort: import.meta.env.VITE_REVERB_PORT ?? 80,
-            wssPort: import.meta.env.VITE_REVERB_PORT ?? 443,
-            forceTLS: (import.meta.env.VITE_REVERB_SCHEME === 'https'),
+            key: getEnv('VITE_REVERB_APP_KEY'),
+            wsHost: getEnv('VITE_REVERB_HOST'),
+            wsPort: getEnv('VITE_REVERB_PORT') ?? 80,
+            wssPort: getEnv('VITE_REVERB_PORT') ?? 443,
+            forceTLS: (getEnv('VITE_REVERB_SCHEME') === 'https'),
             enabledTransports: ['ws', 'wss'],
         });
 
-        console.log(`👑 Admin Kanalı Dinleniyor: App.Models.User.${userId}`);
+        console.log(`🌍 Admin Kanalı Dinleniyor: App.Models.User.${userId}`);
 
-        // Kanal adı Backend'deki ile birebir aynı olmalı
         echo.channel(`App.Models.User.${userId}`)
             .listen('.message.sent', (e) => {
-                // ... (İçerik aynı kalacak: Ses çalma ve Liste güncelleme)
-
                 // SES ÇALMA
                 if (e.sender_type === 'App\\Models\\Visitor') {
                     try {
@@ -65,7 +74,6 @@ export default function ChatsIndex({ auth, conversations }) {
                         chat.messages = [...(chat.messages || []), e];
                         chat.updated_at = new Date().toISOString();
                         if (e.visitor) chat.visitor = e.visitor;
-
                         updatedList.splice(index, 1);
                         updatedList.unshift(chat);
                     } else {
@@ -84,17 +92,17 @@ export default function ChatsIndex({ auth, conversations }) {
         return () => echo.leave(`App.Models.User.${userId}`);
     }, [auth.user.id]);
 
-    // --- REVERB 2: LOCAL (SOHBET ODASI) ---
+    // --- REVERB 2: LOCAL LISTENER (Sohbet Detayı) ---
     useEffect(() => {
         if (!selectedChat) return;
 
         const echo = new Echo({
             broadcaster: 'reverb',
-            key: import.meta.env.VITE_REVERB_APP_KEY,
-            wsHost: import.meta.env.VITE_REVERB_HOST,
-            wsPort: import.meta.env.VITE_REVERB_PORT ?? 80,
-            wssPort: import.meta.env.VITE_REVERB_PORT ?? 443,
-            forceTLS: (import.meta.env.VITE_REVERB_SCHEME === 'https'),
+            key: getEnv('VITE_REVERB_APP_KEY'),
+            wsHost: getEnv('VITE_REVERB_HOST'),
+            wsPort: getEnv('VITE_REVERB_PORT') ?? 80,
+            wssPort: getEnv('VITE_REVERB_PORT') ?? 443,
+            forceTLS: (getEnv('VITE_REVERB_SCHEME') === 'https'),
             enabledTransports: ['ws', 'wss'],
         });
 
@@ -103,19 +111,17 @@ export default function ChatsIndex({ auth, conversations }) {
                 setIsVisitorTyping(false);
 
                 setLocalMessages(prev => {
-                    // 1. Eğer gelen mesajda temp_id varsa, yerel listede bu temp_id'ye sahip mesajı bul
+                    // 1. Temp ID Eşleştirmesi (Optimistic UI Düzeltmesi)
                     if (e.temp_id) {
-                        const match = prev.find(m => m.temp_id === e.temp_id);
-                        if (match) {
-                            // Eşleşme bulundu! Geçici mesajı sil, Gerçek mesajı yerine koy.
+                        const tempMatch = prev.find(m => m.temp_id === e.temp_id);
+                        if (tempMatch) {
                             return prev.map(m => m.temp_id === e.temp_id ? e : m);
                         }
                     }
 
-                    // 2. Normal ID kontrolü (Çift eklemeyi önle)
+                    // 2. Normal ID Kontrolü
                     if (prev.find(m => m.id === e.id)) return prev;
 
-                    // 3. Eşleşme yoksa yeni mesaj olarak ekle
                     return [...prev, e];
                 });
             })
@@ -161,6 +167,13 @@ export default function ChatsIndex({ auth, conversations }) {
         }
     };
 
+    // DOSYA SEÇİMİ
+    const handleFileSelect = (e) => {
+        if (e.target.files && e.target.files[0]) {
+            setSelectedFile(e.target.files[0]);
+        }
+    };
+
     const handleDeleteChat = (e, chatId) => {
         e.stopPropagation();
         if (confirm('Bu sohbeti silmek istediğinize emin misiniz?')) {
@@ -179,30 +192,46 @@ export default function ChatsIndex({ auth, conversations }) {
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        if (!selectedChat || !data.message.trim()) return;
 
-        // Benzersiz geçici ID oluştur
+        // Boş mesaj ve dosya yoksa gönderme
+        if (!selectedChat || (!data.message.trim() && !selectedFile)) return;
+
         const tempId = crypto.randomUUID();
+        const currentMsg = data.message;
+        const currentFile = selectedFile;
 
-        const tempMsg = {
-            id: Date.now(), // React key için
-            temp_id: tempId, // Eşleştirme için
-            body: data.message,
+        // Formu Temizle
+        setData('message', '');
+        setSelectedFile(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+
+        // OPTIMISTIC UI: Mesajı/Resmi hemen ekle
+        const tempMsgObj = {
+            id: Date.now(),
+            temp_id: tempId,
+            body: currentMsg,
             sender_type: 'App\\Models\\User',
             created_at: new Date().toISOString(),
-            is_read: true, // Admin kendi mesajını okumuş sayılır
-            conversation_id: selectedChat.id
+            is_read: true,
+            conversation_id: selectedChat.id,
+            // Dosya varsa tipi belirle ve geçici URL oluştur
+            type: currentFile ? (currentFile.type.startsWith('image/') ? 'image' : 'file') : 'text',
+            attachment_url: currentFile ? URL.createObjectURL(currentFile) : null
         };
 
-        setLocalMessages(prev => [...prev, tempMsg]);
+        setLocalMessages(prev => [...prev, tempMsgObj]);
 
-        const currentMsg = data.message;
-        setData('message', '');
+        // FORMDATA Hazırla (Dosya için şart)
+        const formData = new FormData();
+        if (currentMsg) formData.append('message', currentMsg);
+        formData.append('temp_id', tempId);
+        if (currentFile) {
+            formData.append('attachment', currentFile);
+        }
 
-        // İsteği temp_id ile gönder
-        axios.post(route('chats.reply', selectedChat.id), {
-            message: currentMsg,
-            temp_id: tempId // <--- Backend'e bunu yolluyoruz
+        // Axios ile gönder (Header önemli)
+        axios.post(route('chats.reply', selectedChat.id), formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
         }).catch(err => {
             console.error("Mesaj gitmedi", err);
             alert("Mesaj gönderilemedi!");
@@ -270,6 +299,7 @@ export default function ChatsIndex({ auth, conversations }) {
                         <div className="w-2/3 flex flex-col bg-white">
                             {selectedChat ? (
                                 <>
+                                    {/* HEADER & KART */}
                                     <div className="border-b border-gray-200 bg-gray-50">
                                         <div className="p-4 flex justify-between items-center">
                                             <div>
@@ -325,6 +355,7 @@ export default function ChatsIndex({ auth, conversations }) {
                                         </div>
                                     </div>
 
+                                    {/* MESAJ ALANI - BURASI GÜNCELLENDİ (DOSYA DESTEĞİ) */}
                                     <div className="flex-1 p-4 overflow-y-auto bg-gray-50 space-y-4">
                                         {localMessages.map((msg) => (
                                             <div key={msg.id} className={`flex ${msg.sender_type === 'App\\Models\\Visitor' ? 'justify-start' : 'justify-end'}`}>
@@ -332,7 +363,34 @@ export default function ChatsIndex({ auth, conversations }) {
                                                     ? 'bg-white text-gray-800 border border-gray-200'
                                                     : 'bg-indigo-600 text-white'
                                                     }`}>
-                                                    {msg.body}
+
+                                                    {/* RESİM / DOSYA GÖSTERİMİ */}
+                                                    {(msg.type === 'image' || (msg.attachment_url && msg.attachment_url.match(/\.(jpeg|jpg|gif|png)$/i))) ? (
+                                                        <div className="mb-2">
+                                                            <img
+                                                                src={msg.attachment_url}
+                                                                alt="Eklenti"
+                                                                className="rounded-md max-w-full border border-gray-300"
+                                                                style={{ maxHeight: '200px' }}
+                                                            />
+                                                        </div>
+                                                    ) : msg.attachment_url ? (
+                                                        <div className="mb-2">
+                                                            <a
+                                                                href={msg.attachment_url}
+                                                                target="_blank"
+                                                                className={`flex items-center gap-1 hover:underline ${msg.sender_type === 'App\\Models\\Visitor' ? 'text-indigo-600' : 'text-white'}`}
+                                                            >
+                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                                                                </svg>
+                                                                Dosyayı İndir
+                                                            </a>
+                                                        </div>
+                                                    ) : null}
+
+                                                    {/* METİN */}
+                                                    {msg.body && <span>{msg.body}</span>}
 
                                                     <div className={`text-[10px] mt-1 flex items-center justify-end gap-1 ${msg.sender_type === 'App\\Models\\Visitor' ? 'text-gray-400' : 'text-indigo-200'}`}>
                                                         <span>{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
@@ -352,8 +410,40 @@ export default function ChatsIndex({ auth, conversations }) {
                                         <div ref={messagesEndRef} />
                                     </div>
 
+                                    {/* INPUT & DOSYA */}
                                     <div className="p-4 border-t border-gray-200">
+                                        {/* Seçilen Dosya Önizlemesi */}
+                                        {selectedFile && (
+                                            <div className="mb-2 text-sm text-indigo-600 flex items-center gap-2 bg-indigo-50 p-2 rounded w-fit">
+                                                <span>📎 {selectedFile.name}</span>
+                                                <button onClick={() => { setSelectedFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }} className="text-red-500 font-bold hover:text-red-700">✕</button>
+                                            </div>
+                                        )}
+
                                         <form className="flex gap-2" onSubmit={handleSubmit}>
+                                            {/* Gizli Dosya Inputu */}
+                                            <input
+                                                type="file"
+                                                ref={fileInputRef}
+                                                className="hidden"
+                                                onChange={(e) => {
+                                                    if (e.target.files && e.target.files[0]) setSelectedFile(e.target.files[0]);
+                                                }}
+                                                accept="image/*,.pdf,.doc,.docx"
+                                            />
+
+                                            {/* Ataş Butonu */}
+                                            <button
+                                                type="button"
+                                                onClick={() => fileInputRef.current.click()}
+                                                className="text-gray-500 hover:text-indigo-600 transition p-2"
+                                                title="Dosya Ekle"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                                                </svg>
+                                            </button>
+
                                             <input
                                                 type="text"
                                                 value={data.message}

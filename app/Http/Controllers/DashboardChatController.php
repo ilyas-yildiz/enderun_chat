@@ -5,84 +5,73 @@ namespace App\Http\Controllers;
 use App\Events\MessageSent;
 use App\Models\Conversation;
 use App\Models\Message;
-use App\Models\User; // Import
-use App\Models\Website; // Eklendi
+use App\Models\User;
+use App\Models\Website;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 
 class DashboardChatController extends Controller
 {
-public function index()
+    public function index()
     {
         // Adminin sahip olduğu TÜM site ID'lerini al
         $websiteIds = Website::where('user_id', Auth::id())->pluck('id');
 
         // Bu sitelere ait tüm sohbetleri getir
         $conversations = Conversation::with(['visitor', 'messages'])
-            ->whereIn('website_id', $websiteIds) // <--- DEĞİŞİKLİK BURADA (where -> whereIn)
+            ->whereIn('website_id', $websiteIds)
             ->whereHas('messages')
             ->latest('updated_at')
             ->get();
 
         return Inertia::render('Chats/Index', [
             'conversations' => $conversations,
-            // website_id artık göndermiyoruz, çünkü admin kendi ID'sini (auth.user.id) dinleyecek
         ]);
     }
 
-    public function show($id)
-    {
-        // Tekil sohbet detayını getirmek için (İleride kullanacağız, şimdilik dursun)
-        $conversation = Conversation::with(['visitor', 'messages'])->findOrFail($id);
-        
-        return response()->json($conversation);
-    }
-
- public function reply(Request $request, Conversation $conversation)
+    // GÜNCELLENEN METOD: Dosya Desteği Eklendi
+    public function reply(Request $request, Conversation $conversation)
     {
         $validated = $request->validate([
-            'message' => 'required|string|max:1000',
-            'temp_id' => 'nullable|string', // <--- YENİ: Validasyon
+            'message' => 'nullable|string|max:1000', // Mesaj opsiyonel olabilir (sadece resim varsa)
+            'attachment' => 'nullable|file|max:10240|mimes:jpeg,png,jpg,gif,pdf,doc,docx,xls,xlsx',
+            'temp_id' => 'nullable|string',
         ]);
+
+        if (!$request->hasFile('attachment') && empty($validated['message'])) {
+             return back()->withErrors(['message' => 'Mesaj veya dosya göndermelisiniz.']);
+        }
+
+        $type = 'text';
+        $attachmentPath = null;
+
+        // Dosya Yükleme İşlemi (Public Klasörüne)
+        if ($request->hasFile('attachment')) {
+            $file = $request->file('attachment');
+            $type = str_starts_with($file->getMimeType(), 'image/') ? 'image' : 'file';
+            
+            $filename = time() . '_' . Str::random(10) . '.' . $file->getClientOriginalExtension();
+            $file->move(public_path('attachments'), $filename);
+            
+            $attachmentPath = 'attachments/' . $filename;
+        }
 
         $message = $conversation->messages()->create([
             'body' => $validated['message'],
             'sender_type' => User::class,
             'sender_id' => Auth::id(),
             'is_read' => true,
+            'type' => $type,
+            'attachment_path' => $attachmentPath,
         ]);
 
         $conversation->touch();
 
-        // Temp ID'yi event'e pasla
+        // Reverb'e Gönder
         MessageSent::dispatch($message, $request->input('temp_id'));
 
         return back();
     }
-
-    public function destroy(Conversation $conversation)
-    {
-        // Güvenlik Kontrolü: Bu sohbet, adminin sitelerinden birine mi ait?
-        // Adminin sahibi olduğu sitelerin ID'lerini al
-        $userWebsiteIds = Website::where('user_id', Auth::id())->pluck('id')->toArray();
-
-        if (!in_array($conversation->website_id, $userWebsiteIds)) {
-            abort(403, 'Bu sohbeti silme yetkiniz yok.');
-        }
-
-        // Sohbeti ve bağlı mesajları sil (Cascade ayarı db'de varsa mesajlar otomatik gider)
-        $conversation->delete();
-
-        return to_route('chats.index'); // Sayfayı yenile
-    }
-
-    public function typing(Conversation $conversation)
-    {
-        // Admin yazıyorsa senderType: 'user'
-        \App\Events\UserTyping::dispatch($conversation->id, 'user');
-
-        return response()->noContent();
-    }
-
 }

@@ -20,8 +20,15 @@ class ChatController extends Controller
             $validated = $request->validate([
                 'widget_token' => 'required|uuid|exists:websites,widget_token',
                 'visitor_uuid' => 'required|uuid', 
-                'message' => 'required|string|max:1000',
+                'message' => 'nullable|string|max:1000', // Mesaj boş olabilir (sadece resim varsa)
+                // Dosya validasyonu: Maks 10MB, resim veya döküman
+                'attachment' => 'nullable|file|max:10240|mimes:jpeg,png,jpg,gif,pdf,doc,docx,xls,xlsx', 
             ]);
+
+            // Eğer ne mesaj ne de dosya varsa hata ver
+            if (!$request->hasFile('attachment') && empty($validated['message'])) {
+                return response()->json(['error' => 'Mesaj veya dosya göndermelisiniz.'], 422);
+            }
 
             // 2. Siteyi Bul
             $website = Website::where('widget_token', $validated['widget_token'])->firstOrFail();
@@ -29,7 +36,7 @@ class ChatController extends Controller
             // --- ZİYARETÇİ DETAYLARINI AL ---
             $ip = $request->ip();
             $userAgent = $request->header('User-Agent');
-            $currentUrl = $request->input('current_url'); // Frontend'den gelen URL
+            $currentUrl = $request->input('current_url');
 
             // 3. Ziyaretçiyi Bul veya Oluştur
             $visitor = Visitor::firstOrCreate(
@@ -44,7 +51,7 @@ class ChatController extends Controller
             );
 
             // --- ZİYARETÇİ BİLGİLERİNİ GÜNCELLE ---
-            // Basit User-Agent Analizi
+            // (Mevcut kodlarınız korundu)
             $browser = 'Diğer';
             if (str_contains($userAgent, 'Chrome')) $browser = 'Chrome';
             elseif (str_contains($userAgent, 'Firefox')) $browser = 'Firefox';
@@ -58,13 +65,10 @@ class ChatController extends Controller
             elseif (str_contains($userAgent, 'Android')) $os = 'Android';
             elseif (str_contains($userAgent, 'iPhone') || str_contains($userAgent, 'iPad')) $os = 'iOS';
 
-        // --- KONUM BELİRLEME (GÜNCELLENDİ) ---
-            // Docker IP karmaşasını önlemek için direkt ortam kontrolü yapıyoruz.
             if (app()->environment('local')) {
                 $city = 'Ankara (Local)';
                 $country = 'TR';
             } else {
-                // TODO: Canlı sunucuda buraya 'stevebauman/location' paketi eklenecek.
                 $city = null;
                 $country = null;
             }
@@ -88,14 +92,36 @@ class ChatController extends Controller
                 ]
             );
 
-            // 5. Mesajı Kaydet
+            // 5. Dosya Yükleme İşlemi (PAYLAŞIMLI SUNUCU UYUMLU)
+            $type = 'text';
+            $attachmentPath = null;
+
+            if ($request->hasFile('attachment')) {
+                $file = $request->file('attachment');
+                
+                // Dosya türünü belirle
+                $type = str_starts_with($file->getMimeType(), 'image/') ? 'image' : 'file';
+                
+                // Benzersiz dosya ismi oluştur
+                $filename = time() . '_' . Str::random(10) . '.' . $file->getClientOriginalExtension();
+                
+                // Dosyayı doğrudan 'public/attachments' klasörüne taşı
+                $file->move(public_path('attachments'), $filename);
+                
+                // Veritabanına kaydedilecek yol (public hariç)
+                $attachmentPath = 'attachments/' . $filename;
+            }
+
+            // 6. Mesajı Kaydet
             $message = $conversation->messages()->create([
                 'body' => $validated['message'],
                 'sender_type' => Visitor::class,
                 'sender_id' => $visitor->id,
+                'type' => $type,
+                'attachment_path' => $attachmentPath,
             ]);
 
-            // 6. REAL-TIME BROADCAST (YAYINLA)
+            // 7. Broadcast
             MessageSent::dispatch($message);
 
             return response()->json([
@@ -120,8 +146,6 @@ class ChatController extends Controller
             'conversation_id' => 'required|exists:conversations,id',
         ]);
 
-        // Olayı fırlat
-        // Ziyaretçi yazıyorsa senderType: 'visitor'
         \App\Events\UserTyping::dispatch($validated['conversation_id'], 'visitor');
 
         return response()->noContent();
@@ -134,14 +158,11 @@ class ChatController extends Controller
             'conversation_id' => 'required|exists:conversations,id',
         ]);
 
-        // Bu sohbetteki, ADMIN (User) tarafından atılmış ve henüz okunmamış mesajları bul
-        // ve hepsini 'okundu' yap.
         \App\Models\Message::where('conversation_id', $validated['conversation_id'])
-            ->where('sender_type', \App\Models\User::class) // Sadece Admin mesajları
+            ->where('sender_type', \App\Models\User::class)
             ->where('is_read', false)
             ->update(['is_read' => true]);
 
-        // Admin paneline "Okundu" sinyali gönder
         \App\Events\MessagesRead::dispatch($validated['conversation_id']);
 
         return response()->noContent();
