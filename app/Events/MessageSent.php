@@ -17,24 +17,21 @@ class MessageSent implements ShouldBroadcastNow
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
     public $message;
-    public $tempId; // <--- YENİ: Geçici ID
+    public $tempId;
 
-    // Constructor'a tempId eklendi
     public function __construct(Message $message, $tempId = null)
     {
         $this->message = $message;
         $this->tempId = $tempId;
     }
 
-  public function broadcastOn(): array
+    public function broadcastOn(): array
     {
         $channels = [
-            // 1. Sohbet Odası (Aktif sohbet için)
             new Channel('chat.' . $this->message->conversation_id),
         ];
 
-        // 2. Sitenin Sahibi (Admin) Kanalı
-        // Admin, sahip olduğu tüm sitelerden gelen mesajları bu kanaldan duyacak
+        // Eğer site sahibi (Admin) varsa onun kanalına da gönder
         $adminId = $this->message->conversation->website->user_id;
         if ($adminId) {
             $channels[] = new Channel('App.Models.User.' . $adminId);
@@ -52,7 +49,12 @@ class MessageSent implements ShouldBroadcastNow
             'conversation_id' => $this->message->conversation_id,
             'created_at' => $this->message->created_at->toIso8601String(),
             'visitor' => $this->message->conversation->visitor,
-            'temp_id' => $this->tempId, // <--- YENİ: Frontend'e geri gönderiyoruz
+            'temp_id' => $this->tempId,
+            
+            // --- EKSİK OLAN PARÇALAR EKLENDİ ---
+            'type' => $this->message->type, // 'text', 'image' vs.
+            // Modeldeki getAttachmentUrlAttribute accessor'ını tetikler
+            'attachment_url' => $this->message->attachment_url, 
         ];
     }
     

@@ -5,6 +5,7 @@ import Pusher from 'pusher-js';
 import axios from 'axios';
 
 const WIDGET_ID = 'enderun-chat-widget-container';
+// Vite env değişkeni veya varsayılan localhost
 const API_URL = import.meta.env.VITE_APP_URL || 'http://localhost';
 
 window.Pusher = Pusher;
@@ -14,10 +15,10 @@ function getStorageData() {
     let uuid = localStorage.getItem('chat_visitor_uuid');
     let conversationId = localStorage.getItem('chat_conversation_id');
 
-    // ... (UUID oluşturma mantığı aynı kalsın)
+    // Basit UUID regex kontrolü
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     if (!uuid || !uuidRegex.test(uuid)) {
-        if (crypto.randomUUID) {
+        if (typeof crypto !== 'undefined' && crypto.randomUUID) {
             uuid = crypto.randomUUID();
         } else {
             uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
@@ -32,9 +33,6 @@ function getStorageData() {
     return { uuid, conversationId };
 }
 
-// NOT: Styles objesini fonksiyonun içine taşıdık ki 'config' state'ine erişebilelim.
-// Veya dinamik style prop kullanacağız.
-
 function initWidget() {
     if (document.getElementById(WIDGET_ID)) return;
     const widgetRoot = document.createElement('div');
@@ -47,17 +45,20 @@ function initWidget() {
 }
 
 function WidgetApp({ token }) {
-    // --- CONFIG STATE (Varsayılanlar) ---
     const [config, setConfig] = useState({
-        color: '#4F46E5', // Default Indigo
+        color: '#4F46E5',
         title: 'Canlı Destek',
         welcome: 'Merhaba 👋 Size nasıl yardımcı olabilirim?'
     });
 
     const [isOpen, setIsOpen] = useState(false);
-    const [messages, setMessages] = useState([]); // Boş başlatıyoruz, config gelince ekleyeceğiz
+    const [messages, setMessages] = useState([]);
     const [message, setMessage] = useState('');
     const [status, setStatus] = useState('Bağlanıyor...');
+
+    // DOSYA STATE'LERİ
+    const [selectedFile, setSelectedFile] = useState(null);
+    const fileInputRef = useRef(null);
 
     const storageData = useRef(getStorageData());
     const visitorUUID = storageData.current.uuid;
@@ -72,10 +73,9 @@ function WidgetApp({ token }) {
         axios.get(`${API_URL}/api/chat/config?widget_token=${token}`)
             .then(res => {
                 setConfig(res.data);
-                // Eğer hiç mesaj yoksa karşılama mesajını ekle
                 setMessages(prev => {
                     if (prev.length === 0) {
-                        return [{ id: 1, text: res.data.welcome, sender: 'agent' }];
+                        return [{ id: 1, text: res.data.welcome, sender: 'agent', type: 'text' }];
                     }
                     return prev;
                 });
@@ -103,7 +103,13 @@ function WidgetApp({ token }) {
                 .listen('.message.sent', (e) => {
                     setIsAgentTyping(false);
                     if (e.sender_type !== 'App\\Models\\Visitor') {
-                        setMessages(prev => [...prev, { id: e.id, text: e.body, sender: 'agent' }]);
+                        setMessages(prev => [...prev, {
+                            id: e.id,
+                            text: e.body,
+                            sender: 'agent',
+                            type: e.type || 'text',
+                            attachment_url: e.attachment_url // Dosya URL'i
+                        }]);
                     }
                 })
                 .listen('.client.typing', (e) => {
@@ -128,24 +134,55 @@ function WidgetApp({ token }) {
         }
     };
 
+    // DOSYA SEÇME
+    const handleFileSelect = (e) => {
+        if (e.target.files && e.target.files[0]) {
+            setSelectedFile(e.target.files[0]);
+        }
+    };
+
     const toggle = () => setIsOpen(!isOpen);
 
     const send = async (e) => {
         e.preventDefault();
-        if (!message.trim()) return;
+
+        if (!message.trim() && !selectedFile) return;
 
         const currentMsg = message;
+        const currentFile = selectedFile;
+
+        // Formu temizle
         setMessage('');
+        setSelectedFile(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+
+        // Optimistic UI
         const tempId = Date.now();
-        setMessages(prev => [...prev, { id: tempId, text: currentMsg, sender: 'visitor' }]);
+        setMessages(prev => [...prev, {
+            id: tempId,
+            text: currentMsg,
+            sender: 'visitor',
+            type: currentFile ? 'image' : 'text',
+            attachment_url: currentFile ? URL.createObjectURL(currentFile) : null
+        }]);
 
         try {
-            const response = await axios.post(`${API_URL}/api/chat/send`, {
-                widget_token: token,
-                visitor_uuid: visitorUUID,
-                message: currentMsg,
-                current_url: window.location.href
+            const formData = new FormData();
+            formData.append('widget_token', token);
+            formData.append('visitor_uuid', visitorUUID);
+            if (currentMsg) formData.append('message', currentMsg);
+            formData.append('current_url', window.location.href);
+
+            if (currentFile) {
+                formData.append('attachment', currentFile);
+            }
+
+            const response = await axios.post(`${API_URL}/api/chat/send`, formData, {
+                headers: {
+                    'Content-Type': 'multipart/form-data'
+                }
             });
+
             if (response.data.message && response.data.message.conversation_id) {
                 const newConvId = response.data.message.conversation_id;
                 if (conversationId != newConvId) {
@@ -154,7 +191,8 @@ function WidgetApp({ token }) {
                 }
             }
         } catch (error) {
-            // Error handling...
+            console.error("Mesaj gönderilemedi ❌", error);
+            alert("Mesaj gönderilemedi!");
         }
     };
 
@@ -175,14 +213,14 @@ function WidgetApp({ token }) {
     // --- STYLES (Dynamic) ---
     const styles = {
         container: { position: 'fixed', bottom: '20px', right: '20px', zIndex: 2147483647, fontFamily: 'sans-serif', display: 'flex', flexDirection: 'column', alignItems: 'flex-end' },
-        // Rengi Config'den alıyoruz
         button: { backgroundColor: config.color, color: 'white', border: 'none', borderRadius: '50%', width: '60px', height: '60px', cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '28px' },
         chatWindow: { width: '350px', height: '500px', backgroundColor: 'white', borderRadius: '16px', boxShadow: '0 5px 20px rgba(0,0,0,0.2)', marginBottom: '16px', display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid #e5e7eb' },
-        // Rengi Config'den alıyoruz
         header: { background: config.color, color: 'white', padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
         messagesArea: { flex: 1, backgroundColor: '#f9fafb', padding: '16px', overflowY: 'auto' },
-        footer: { padding: '12px', borderTop: '1px solid #f3f4f6', display: 'flex', gap: '8px' },
-        input: { flex: 1, padding: '10px', borderRadius: '20px', border: '1px solid #ddd' }
+        footer: { padding: '12px', borderTop: '1px solid #f3f4f6', display: 'flex', gap: '8px', alignItems: 'center' },
+        input: { flex: 1, padding: '10px', borderRadius: '20px', border: '1px solid #ddd' },
+        fileButton: { cursor: 'pointer', color: '#6b7280', padding: '5px', background: 'none', border: 'none' }, // Ataş stili
+        filePreview: { fontSize: '12px', color: '#4F46E5', marginBottom: '5px', padding: '0 12px' }
     };
 
     return (
@@ -191,7 +229,6 @@ function WidgetApp({ token }) {
                 <div style={styles.chatWindow}>
                     <div style={styles.header}>
                         <div>
-                            {/* Başlığı Config'den al */}
                             <div style={{ fontWeight: 'bold' }}>{config.title}</div>
                             <div style={{ fontSize: '12px', opacity: 0.8 }}>{status}</div>
                         </div>
@@ -200,12 +237,29 @@ function WidgetApp({ token }) {
                     <div style={styles.messagesArea}>
                         {messages.map(m => (
                             <div key={m.id} style={{ textAlign: m.sender === 'visitor' ? 'right' : 'left', margin: '5px 0' }}>
-                                <span style={{
-                                    // Rengi Config'den al (Sadece Ziyaretçi Mesajları İçin Arka Plan)
-                                    background: m.sender === 'visitor' ? config.color : 'white',
-                                    color: m.sender === 'visitor' ? 'white' : 'black',
-                                    padding: '8px', borderRadius: '8px', display: 'inline-block', boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
-                                }}>{m.text}</span>
+                                <div style={{ display: 'inline-block', maxWidth: '80%' }}>
+                                    {/* Resim Varsa Göster */}
+                                    {(m.type === 'image' || (m.attachment_url && m.attachment_url.match(/\.(jpeg|jpg|gif|png)$/i))) ? (
+                                        <img
+                                            src={m.attachment_url}
+                                            alt="attachment"
+                                            style={{ borderRadius: '8px', maxWidth: '100%', marginBottom: m.text ? '5px' : '0', border: '1px solid #eee' }}
+                                        />
+                                    ) : m.attachment_url ? (
+                                        <a href={m.attachment_url} target="_blank" style={{ display: 'block', marginBottom: '5px', color: config.color }}>📎 Dosya İndir</a>
+                                    ) : null}
+
+                                    {/* Metin Varsa Göster */}
+                                    {m.text && (
+                                        <span style={{
+                                            background: m.sender === 'visitor' ? config.color : 'white',
+                                            color: m.sender === 'visitor' ? 'white' : 'black',
+                                            padding: '8px', borderRadius: '8px', display: 'inline-block', boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                                        }}>
+                                            {m.text}
+                                        </span>
+                                    )}
+                                </div>
                             </div>
                         ))}
 
@@ -217,7 +271,35 @@ function WidgetApp({ token }) {
                             </div>
                         )}
                     </div>
+
+                    {/* Dosya Önizlemesi */}
+                    {selectedFile && (
+                        <div style={styles.filePreview}>
+                            📎 {selectedFile.name}
+                            <button onClick={() => { setSelectedFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }} style={{ border: 'none', background: 'none', color: 'red', cursor: 'pointer', marginLeft: '5px' }}>✕</button>
+                        </div>
+                    )}
+
                     <form style={styles.footer} onSubmit={send}>
+                        {/* GİZLİ DOSYA INPUTU */}
+                        <input
+                            type="file"
+                            ref={fileInputRef}
+                            style={{ display: 'none' }}
+                            onChange={handleFileSelect}
+                            accept="image/*,.pdf,.doc,.docx"
+                        />
+
+                        {/* ATAŞ İKONU */}
+                        <button
+                            type="button"
+                            style={styles.fileButton}
+                            onClick={() => fileInputRef.current.click()}
+                            title="Dosya Ekle"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>
+                        </button>
+
                         <input value={message} onChange={handleInputChange} style={styles.input} placeholder="Mesaj..." />
                     </form>
                 </div>
