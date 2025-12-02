@@ -13,7 +13,10 @@ class ConversationController extends Controller
 {
     public function index(Request $request)
     {
-        // GÜVENLİK AKTİF: Sadece adminin kendi sitelerini getir
+        // ... (Index metodu aynı kalacak) ...
+        // Kopyala-Yapıştır yaparken index metodunu bozmamaya dikkat et.
+        // Eğer tamamını istiyorsan aşağıya tam dosya koyuyorum.
+        
         $websiteIds = Website::where('user_id', Auth::id())->pluck('id');
 
         $conversations = Conversation::with(['visitor', 'website'])
@@ -30,7 +33,6 @@ class ConversationController extends Controller
                     'website_name' => $conversation->website->name ?? 'Site',
                     'last_message' => $lastMessage ? Str::limit($lastMessage->body, 30) : '',
                     'time' => $conversation->updated_at->diffForHumans(),
-                    // Okunmamış mesaj var mı?
                     'has_unread' => $conversation->messages()
                         ->where('sender_type', \App\Models\Visitor::class)
                         ->where('is_read', false)
@@ -40,22 +42,23 @@ class ConversationController extends Controller
 
         return response()->json($conversations);
     }
-    
-    // YENİ: Tekil Sohbetin Mesajlarını Getir
+
+    // GÜNCELLENEN METOD: Resim Yollarını da Gönder
     public function show($id)
     {
         $conversation = Conversation::with(['messages' => function($q) {
-            $q->orderBy('created_at', 'desc'); // En yeni en üstte (Chat arayüzü için)
+            $q->orderBy('created_at', 'desc');
         }, 'visitor'])->findOrFail($id);
 
-        // Mobilde listelemek için veriyi düzenle
         $messages = $conversation->messages->map(function($msg) {
             return [
                 'id' => $msg->id,
                 'text' => $msg->body,
                 'createdAt' => $msg->created_at,
-                // Gönderen Admin mi (User) yoksa Ziyaretçi mi?
                 'is_admin' => $msg->sender_type === 'App\\Models\\User',
+                // YENİ ALANLAR:
+                'type' => $msg->type, 
+                'attachment_url' => $msg->attachment_url, // Modeldeki Accessor sayesinde URL gelir
             ];
         });
 
@@ -65,26 +68,49 @@ class ConversationController extends Controller
         ]);
     }
 
-    // YENİ: Cevap Yaz
-    public function reply(Request $request, $id)
+   public function reply(Request $request, $id)
     {
-        $request->validate(['message' => 'required|string']);
+        // Validasyon: Mesaj boş olabilir ama o zaman dosya olmalı
+        $request->validate([
+            'message' => 'nullable|string',
+            'attachment' => 'nullable|file|max:10240|mimes:jpeg,png,jpg,gif,pdf,doc,docx',
+        ]);
+
+        if (!$request->hasFile('attachment') && empty($request->message)) {
+            return response()->json(['error' => 'Mesaj veya dosya göndermelisiniz.'], 422);
+        }
         
         $conversation = Conversation::findOrFail($id);
         
+        $type = 'text';
+        $attachmentPath = null;
+
+        // Dosya Yükleme (Public Klasörüne)
+        if ($request->hasFile('attachment')) {
+            $file = $request->file('attachment');
+            $type = str_starts_with($file->getMimeType(), 'image/') ? 'image' : 'file';
+            
+            $filename = time() . '_' . \Illuminate\Support\Str::random(10) . '.' . $file->getClientOriginalExtension();
+            $file->move(public_path('attachments'), $filename);
+            
+            $attachmentPath = 'attachments/' . $filename;
+        }
+
         // Mesajı Kaydet
         $message = $conversation->messages()->create([
             'body' => $request->message,
             'sender_type' => \App\Models\User::class, // Admin
             'sender_id' => Auth::id(),
             'is_read' => true,
+            'type' => $type,
+            'attachment_path' => $attachmentPath,
         ]);
         
-        $conversation->touch(); // Updated_at güncellensin
+        $conversation->touch(); 
 
-        // Reverb (Socket) Olayını Tetikle (Ziyaretçi görsün diye)
+        // Socket Olayı
         \App\Events\MessageSent::dispatch($message);
         
-        return response()->json(['success' => true]);
+        return response()->json(['success' => true, 'message' => $message]);
     }
 }
