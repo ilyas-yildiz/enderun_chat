@@ -1,12 +1,20 @@
 ﻿import { createRoot } from 'react-dom/client';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import Echo from 'laravel-echo';
 import Pusher from 'pusher-js';
 import axios from 'axios';
 
 const WIDGET_ID = 'enderun-chat-widget-container';
-// Vite env değişkeni veya varsayılan localhost
-const API_URL = import.meta.env.VITE_APP_URL || 'http://localhost';
+
+// Vite env değişkenlerine güvenli erişim
+const getApiUrl = () => {
+    try {
+        return (import.meta && import.meta.env && import.meta.env.VITE_APP_URL) ? import.meta.env.VITE_APP_URL : 'http://localhost';
+    } catch (e) {
+        return 'http://localhost';
+    }
+};
+const API_URL = getApiUrl();
 
 window.Pusher = Pusher;
 
@@ -15,7 +23,6 @@ function getStorageData() {
     let uuid = localStorage.getItem('chat_visitor_uuid');
     let conversationId = localStorage.getItem('chat_conversation_id');
 
-    // Basit UUID regex kontrolü
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     if (!uuid || !uuidRegex.test(uuid)) {
         if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -60,6 +67,9 @@ function WidgetApp({ token }) {
     const [selectedFile, setSelectedFile] = useState(null);
     const fileInputRef = useRef(null);
 
+    // SCROLL REF (Görünmez Çapa - En alta koyacağız)
+    const messagesEndRef = useRef(null);
+
     const storageData = useRef(getStorageData());
     const visitorUUID = storageData.current.uuid;
     const [conversationId, setConversationId] = useState(storageData.current.conversationId);
@@ -67,6 +77,21 @@ function WidgetApp({ token }) {
     const [isAgentTyping, setIsAgentTyping] = useState(false);
     const typingTimeoutRef = useRef(null);
     const lastTypingSentTime = useRef(0);
+
+    // --- SCROLL FONKSİYONU ---
+    const scrollToBottom = () => {
+        if (messagesEndRef.current) {
+            messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+        }
+    };
+
+    // Mesajlar değiştiğinde, pencere açıldığında veya biri yazıyorken aşağı kaydır
+    useEffect(() => {
+        if (isOpen) {
+            // Render tamamlandıktan hemen sonra kaydır
+            setTimeout(scrollToBottom, 100);
+        }
+    }, [messages, isOpen, isAgentTyping]);
 
     // --- 1. CONFIG YÜKLEME ---
     useEffect(() => {
@@ -85,13 +110,26 @@ function WidgetApp({ token }) {
 
     // --- 2. REVERB BAĞLANTISI ---
     useEffect(() => {
+        const getEnv = (key, def) => {
+            try {
+                return (import.meta && import.meta.env && import.meta.env[key]) ? import.meta.env[key] : def;
+            } catch (e) {
+                return def;
+            }
+        };
+
+        const reverbKey = getEnv('VITE_REVERB_APP_KEY', '');
+        const reverbHost = getEnv('VITE_REVERB_HOST', 'localhost');
+        const reverbPort = getEnv('VITE_REVERB_PORT', 80);
+        const reverbScheme = getEnv('VITE_REVERB_SCHEME', 'http');
+
         const echo = new Echo({
             broadcaster: 'reverb',
-            key: import.meta.env.VITE_REVERB_APP_KEY,
-            wsHost: import.meta.env.VITE_REVERB_HOST,
-            wsPort: import.meta.env.VITE_REVERB_PORT ?? 80,
-            wssPort: import.meta.env.VITE_REVERB_PORT ?? 443,
-            forceTLS: (import.meta.env.VITE_REVERB_SCHEME === 'https'),
+            key: reverbKey,
+            wsHost: reverbHost,
+            wsPort: reverbPort ?? 80,
+            wssPort: reverbPort ?? 443,
+            forceTLS: (reverbScheme === 'https'),
             enabledTransports: ['ws', 'wss'],
         });
 
@@ -108,7 +146,7 @@ function WidgetApp({ token }) {
                             text: e.body,
                             sender: 'agent',
                             type: e.type || 'text',
-                            attachment_url: e.attachment_url // Dosya URL'i
+                            attachment_url: e.attachment_url
                         }]);
                     }
                 })
@@ -134,7 +172,6 @@ function WidgetApp({ token }) {
         }
     };
 
-    // DOSYA SEÇME
     const handleFileSelect = (e) => {
         if (e.target.files && e.target.files[0]) {
             setSelectedFile(e.target.files[0]);
@@ -151,12 +188,10 @@ function WidgetApp({ token }) {
         const currentMsg = message;
         const currentFile = selectedFile;
 
-        // Formu temizle
         setMessage('');
         setSelectedFile(null);
         if (fileInputRef.current) fileInputRef.current.value = '';
 
-        // Optimistic UI
         const tempId = Date.now();
         setMessages(prev => [...prev, {
             id: tempId,
@@ -219,7 +254,7 @@ function WidgetApp({ token }) {
         messagesArea: { flex: 1, backgroundColor: '#f9fafb', padding: '16px', overflowY: 'auto' },
         footer: { padding: '12px', borderTop: '1px solid #f3f4f6', display: 'flex', gap: '8px', alignItems: 'center' },
         input: { flex: 1, padding: '10px', borderRadius: '20px', border: '1px solid #ddd' },
-        fileButton: { cursor: 'pointer', color: '#6b7280', padding: '5px', background: 'none', border: 'none' }, // Ataş stili
+        fileButton: { cursor: 'pointer', color: '#6b7280', padding: '5px', background: 'none', border: 'none' },
         filePreview: { fontSize: '12px', color: '#4F46E5', marginBottom: '5px', padding: '0 12px' }
     };
 
@@ -234,6 +269,7 @@ function WidgetApp({ token }) {
                         </div>
                         <button onClick={toggle} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer' }}>✕</button>
                     </div>
+
                     <div style={styles.messagesArea}>
                         {messages.map(m => (
                             <div key={m.id} style={{ textAlign: m.sender === 'visitor' ? 'right' : 'left', margin: '5px 0' }}>
@@ -243,6 +279,8 @@ function WidgetApp({ token }) {
                                         <img
                                             src={m.attachment_url}
                                             alt="attachment"
+                                            // Resim yüklendiğinde de scroll yap
+                                            onLoad={scrollToBottom}
                                             style={{ borderRadius: '8px', maxWidth: '100%', marginBottom: m.text ? '5px' : '0', border: '1px solid #eee' }}
                                         />
                                     ) : m.attachment_url ? (
@@ -270,9 +308,10 @@ function WidgetApp({ token }) {
                                 </span>
                             </div>
                         )}
+                        {/* GÖRÜNMEZ ÇAPA: Scroll buraya hedeflenecek */}
+                        <div ref={messagesEndRef} style={{ float: "left", clear: "both" }}></div>
                     </div>
 
-                    {/* Dosya Önizlemesi */}
                     {selectedFile && (
                         <div style={styles.filePreview}>
                             📎 {selectedFile.name}
@@ -281,7 +320,6 @@ function WidgetApp({ token }) {
                     )}
 
                     <form style={styles.footer} onSubmit={send}>
-                        {/* GİZLİ DOSYA INPUTU */}
                         <input
                             type="file"
                             ref={fileInputRef}
@@ -289,8 +327,6 @@ function WidgetApp({ token }) {
                             onChange={handleFileSelect}
                             accept="image/*,.pdf,.doc,.docx"
                         />
-
-                        {/* ATAŞ İKONU */}
                         <button
                             type="button"
                             style={styles.fileButton}
@@ -299,7 +335,6 @@ function WidgetApp({ token }) {
                         >
                             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>
                         </button>
-
                         <input value={message} onChange={handleInputChange} style={styles.input} placeholder="Mesaj..." />
                     </form>
                 </div>

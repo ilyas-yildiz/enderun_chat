@@ -35,7 +35,7 @@ export default function ChatScreen({ route, navigation }) {
         fetchMessages();
     }, [conversationId]);
 
-    // 2. REAL-TIME BAĞLANTI
+    // 2. REAL-TIME BAĞLANTI (GÜNCELLENDİ: Temp ID Kontrolü)
     useEffect(() => {
         const echo = new Echo({
             ...REVERB_CONFIG,
@@ -46,8 +46,29 @@ export default function ChatScreen({ route, navigation }) {
 
         channel.listen('.message.sent', (e) => {
             setMessages(prev => {
+                // 1. Temp ID Kontrolü: Eğer gelen mesajın temp_id'si listemizde varsa,
+                // o geçici mesajı silip yerine gerçek (sunucudan gelen) mesajı koyuyoruz.
+                if (e.temp_id) {
+                    const tempMatch = prev.find(m => m.temp_id === e.temp_id);
+                    if (tempMatch) {
+                        // Eşleşme bulundu! Listeyi güncelle:
+                        // Map ile dönüyoruz, ID'si temp_id ile uyuşanı yenisiyle değiştiriyoruz.
+                        return prev.map(m => m.temp_id === e.temp_id ? {
+                            id: e.id,
+                            text: e.body,
+                            createdAt: e.created_at,
+                            is_admin: e.sender_type === 'App\\Models\\User',
+                            type: e.type,
+                            attachment_url: e.attachment_url,
+                            temp_id: null // Artık temp değil
+                        } : m);
+                    }
+                }
+
+                // 2. Normal ID Kontrolü: Çift eklemeyi önle
                 if (prev.find(m => m.id === e.id)) return prev;
 
+                // 3. Yeni mesajı ekle
                 const newMessage = {
                     id: e.id,
                     text: e.body,
@@ -82,11 +103,19 @@ export default function ChatScreen({ route, navigation }) {
         }
     };
 
+    // Benzersiz ID üreteci
+    const generateTempId = () => {
+        return Date.now().toString(36) + Math.random().toString(36).substr(2);
+    };
+
     const handleSend = async () => {
         if (!inputText.trim() && !selectedImage) return;
 
+        const tempId = generateTempId(); // Benzersiz geçici ID
+
         const tempMsg = {
-            id: Date.now(),
+            id: Date.now(), // React key için
+            temp_id: tempId, // Eşleştirme için kritik
             text: inputText,
             is_admin: true,
             createdAt: new Date().toISOString(),
@@ -107,6 +136,7 @@ export default function ChatScreen({ route, navigation }) {
         try {
             const formData = new FormData();
             if (textToSend) formData.append('message', textToSend);
+            formData.append('temp_id', tempId); // Backend'e gönderiyoruz
 
             if (imageToSend) {
                 const localUri = imageToSend.uri;
@@ -156,25 +186,22 @@ export default function ChatScreen({ route, navigation }) {
         );
     };
 
-    // --- RESİM SEÇİLDİYSE TAM EKRAN ONAY MODU (YENİLENMİŞ) ---
+    // --- RESİM SEÇİLDİYSE TAM EKRAN ONAY MODU ---
     if (selectedImage) {
         return (
             <SafeAreaView style={styles.fullScreenSafeArea}>
                 <KeyboardAvoidingView
                     style={{ flex: 1 }}
                     behavior={Platform.OS === "ios" ? "padding" : "height"}
-                    // DÜZELTME: Offset artırıldı (+60) ki input klavyenin tam üstüne binsin
-                    keyboardVerticalOffset={Platform.OS === "android" ? StatusBar.currentHeight + 60 : 60}
+                    keyboardVerticalOffset={Platform.OS === "android" ? StatusBar.currentHeight : 0}
                 >
                     <View style={styles.fullScreenContainer}>
-                        {/* Üst Bar (Kapat Butonu) */}
                         <View style={styles.topOverlay}>
                             <TouchableOpacity onPress={() => setSelectedImage(null)} style={styles.closeButton}>
                                 <Text style={styles.closeButtonText}>✕</Text>
                             </TouchableOpacity>
                         </View>
 
-                        {/* Resim Alanı (Esnek) */}
                         <View style={styles.imageWrapper}>
                             <Image
                                 source={{ uri: selectedImage.uri }}
@@ -183,8 +210,6 @@ export default function ChatScreen({ route, navigation }) {
                             />
                         </View>
 
-                        {/* Alt Kısım: Input (Sabit) */}
-                        {/* DÜZELTME: Alt bara güvenli alan (safe area) kadar padding eklendi */}
                         <View style={[styles.bottomOverlay, { paddingBottom: Math.max(insets.bottom, 10) }]}>
                             <View style={styles.captionInputContainer}>
                                 <TextInput
@@ -258,7 +283,6 @@ const styles = StyleSheet.create({
     theirDate: { color: '#9ca3af' },
     chatImage: { width: 200, height: 150, borderRadius: 8, marginBottom: 5, backgroundColor: '#e5e7eb' },
 
-    // Input Alanı
     inputContainer: {
         flexDirection: 'row',
         padding: 10,
@@ -272,20 +296,16 @@ const styles = StyleSheet.create({
     sendButtonText: { color: 'white', fontSize: 18, fontWeight: 'bold' },
     attachButton: { marginRight: 10, padding: 5 },
 
-    // --- TAM EKRAN ÖNİZLEME STİLLERİ ---
     fullScreenSafeArea: { flex: 1, backgroundColor: 'black' },
     fullScreenContainer: { flex: 1, justifyContent: 'space-between' },
 
-    imageWrapper: { flex: 1, justifyContent: 'center', alignItems: 'center', width: '100%' },
+    imageWrapper: { flex: 1, justifyContent: 'center', alignItems: 'center', width: '100%', position: 'relative' },
     fullScreenImage: { width: '100%', height: '100%' },
 
     topOverlay: {
         position: 'absolute',
-        top: 10,
-        left: 0,
-        right: 0,
-        padding: 20,
-        alignItems: 'flex-start',
+        top: 20,
+        right: 20,
         zIndex: 20
     },
     closeButton: { backgroundColor: 'rgba(0,0,0,0.5)', width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
