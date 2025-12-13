@@ -42,5 +42,6 @@ Route::middleware('auth:sanctum')->group(function () {
     // ... (index rotasının altına)
     Route::get('/conversations/{id}', [ConversationController::class, 'show']);
     Route::post('/conversations/{id}/reply', [ConversationController::class, 'reply']);
+    Route::post('/user/device-token', [AuthController::class, 'updateDeviceToken']);
 
 });
