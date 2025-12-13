@@ -40,7 +40,7 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
 
     // --- REVERB 1: GLOBAL LISTENER (Sidebar ve Ses) ---
     useEffect(() => {
-        const userId = auth.user.id;
+        const userId = auth.user.id; 
 
         const echo = new Echo({
             broadcaster: 'reverb',
@@ -61,7 +61,7 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                     try {
                         notificationSound.current.currentTime = 0;
                         notificationSound.current.play().catch(err => console.warn(err));
-                    } catch (err) { }
+                    } catch (err) {}
                 }
 
                 // LİSTE GÜNCELLEME
@@ -163,7 +163,7 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
         const now = Date.now();
         if (now - lastTypingSentTime.current > 2000) {
             lastTypingSentTime.current = now;
-            axios.post(route('chats.typing', selectedChat.id)).catch(() => { });
+            axios.post(route('chats.typing', selectedChat.id)).catch(()=>{});
         }
     };
 
@@ -192,22 +192,22 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
 
     const handleSubmit = (e) => {
         e.preventDefault();
-
+        
         // Boş mesaj ve dosya yoksa gönderme
         if (!selectedChat || (!data.message.trim() && !selectedFile)) return;
 
-        const tempId = crypto.randomUUID();
+        const tempId = crypto.randomUUID(); 
         const currentMsg = data.message;
         const currentFile = selectedFile;
 
         // Formu Temizle
         setData('message', '');
         setSelectedFile(null);
-        if (fileInputRef.current) fileInputRef.current.value = '';
+        if(fileInputRef.current) fileInputRef.current.value = '';
 
         // OPTIMISTIC UI: Mesajı/Resmi hemen ekle
         const tempMsgObj = {
-            id: Date.now(),
+            id: Date.now(), 
             temp_id: tempId,
             body: currentMsg,
             sender_type: 'App\\Models\\User',
@@ -220,12 +220,12 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
         };
 
         setLocalMessages(prev => [...prev, tempMsgObj]);
-
+        
         // FORMDATA Hazırla (Dosya için şart)
         const formData = new FormData();
-        if (currentMsg) formData.append('message', currentMsg);
+        if(currentMsg) formData.append('message', currentMsg);
         formData.append('temp_id', tempId);
-        if (currentFile) {
+        if(currentFile) {
             formData.append('attachment', currentFile);
         }
 
@@ -342,9 +342,9 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
                                                     </svg>
-                                                    <a
-                                                        href={selectedChat.visitor.current_url}
-                                                        target="_blank"
+                                                    <a 
+                                                        href={selectedChat.visitor.current_url} 
+                                                        target="_blank" 
                                                         rel="noopener noreferrer"
                                                         className="text-blue-600 hover:underline truncate max-w-[200px]"
                                                     >
@@ -363,22 +363,34 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                                                     ? 'bg-white text-gray-800 border border-gray-200'
                                                     : 'bg-indigo-600 text-white'
                                                     }`}>
-
+                                                    
                                                     {/* RESİM / DOSYA GÖSTERİMİ */}
                                                     {(msg.type === 'image' || (msg.attachment_url && msg.attachment_url.match(/\.(jpeg|jpg|gif|png)$/i))) ? (
-                                                        <div className="mb-2">
-                                                            <img
-                                                                src={msg.attachment_url}
-                                                                alt="Eklenti"
+                                                        <div className="mb-2 relative group">
+                                                            <img 
+                                                                src={msg.attachment_url} 
+                                                                alt="Eklenti" 
                                                                 className="rounded-md max-w-full border border-gray-300"
-                                                                style={{ maxHeight: '200px' }}
+                                                                style={{maxHeight: '200px'}}
                                                             />
+                                                            {/* İNDİRME BUTONU (Hover olunca) */}
+                                                            <a 
+                                                                href={msg.attachment_url} 
+                                                                target="_blank" 
+                                                                download
+                                                                className="absolute top-2 right-2 bg-black/50 text-white p-1 rounded-full hover:bg-black/70 transition opacity-0 group-hover:opacity-100"
+                                                                title="İndir"
+                                                            >
+                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                                </svg>
+                                                            </a>
                                                         </div>
                                                     ) : msg.attachment_url ? (
                                                         <div className="mb-2">
-                                                            <a
-                                                                href={msg.attachment_url}
-                                                                target="_blank"
+                                                            <a 
+                                                                href={msg.attachment_url} 
+                                                                target="_blank" 
                                                                 className={`flex items-center gap-1 hover:underline ${msg.sender_type === 'App\\Models\\Visitor' ? 'text-indigo-600' : 'text-white'}`}
                                                             >
                                                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -391,10 +403,10 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
 
                                                     {/* METİN */}
                                                     {msg.body && <span>{msg.body}</span>}
-
+                                                    
                                                     <div className={`text-[10px] mt-1 flex items-center justify-end gap-1 ${msg.sender_type === 'App\\Models\\Visitor' ? 'text-gray-400' : 'text-indigo-200'}`}>
                                                         <span>{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-
+                                                        
                                                         {msg.sender_type !== 'App\\Models\\Visitor' && (
                                                             <span title={msg.is_read ? "Okundu" : "İletildi"}>
                                                                 <svg xmlns="http://www.w3.org/2000/svg" className={`h-3 w-3 ${msg.is_read ? 'text-lime-300' : 'text-indigo-300'}`} viewBox="0 0 20 20" fill="currentColor">
@@ -416,25 +428,23 @@ export default function ChatsIndex({ auth, conversations, website_id }) {
                                         {selectedFile && (
                                             <div className="mb-2 text-sm text-indigo-600 flex items-center gap-2 bg-indigo-50 p-2 rounded w-fit">
                                                 <span>📎 {selectedFile.name}</span>
-                                                <button onClick={() => { setSelectedFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }} className="text-red-500 font-bold hover:text-red-700">✕</button>
+                                                <button onClick={() => { setSelectedFile(null); if(fileInputRef.current) fileInputRef.current.value=''; }} className="text-red-500 font-bold hover:text-red-700">✕</button>
                                             </div>
                                         )}
 
                                         <form className="flex gap-2" onSubmit={handleSubmit}>
                                             {/* Gizli Dosya Inputu */}
-                                            <input
-                                                type="file"
-                                                ref={fileInputRef}
-                                                className="hidden"
-                                                onChange={(e) => {
-                                                    if (e.target.files && e.target.files[0]) setSelectedFile(e.target.files[0]);
-                                                }}
+                                            <input 
+                                                type="file" 
+                                                ref={fileInputRef} 
+                                                className="hidden" 
+                                                onChange={handleFileSelect} 
                                                 accept="image/*,.pdf,.doc,.docx"
                                             />
 
                                             {/* Ataş Butonu */}
-                                            <button
-                                                type="button"
+                                            <button 
+                                                type="button" 
                                                 onClick={() => fileInputRef.current.click()}
                                                 className="text-gray-500 hover:text-indigo-600 transition p-2"
                                                 title="Dosya Ekle"

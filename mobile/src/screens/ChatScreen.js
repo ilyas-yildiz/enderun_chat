@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ActivityIndicator, Image, Linking, Alert, SafeAreaView, StatusBar, Modal } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import api, { REVERB_CONFIG } from '../services/api';
@@ -22,9 +22,20 @@ export default function ChatScreen({ route, navigation }) {
     const fixImageUrl = (url) => {
         if (!url) return null;
         if (url.startsWith('http') && !url.includes('localhost')) return url;
+        
+        // API base URL'inden host'u al (Örn: http://192.168.1.35)
         const baseUrl = api.defaults.baseURL.replace('/api', ''); 
-        if (url.includes('localhost')) return url.replace('http://localhost', baseUrl);
-        if (url.startsWith('/')) return `${baseUrl}${url}`;
+
+        // Eğer URL localhost içeriyorsa değiştir
+        if (url.includes('localhost')) {
+            return url.replace('http://localhost', baseUrl);
+        }
+        
+        // Eğer relative path ise (/attachments/...) başına base ekle
+        if (url.startsWith('/')) {
+            return `${baseUrl}${url}`;
+        }
+
         return url;
     };
 
@@ -55,8 +66,7 @@ export default function ChatScreen({ route, navigation }) {
 
         channel.listen('.message.sent', (e) => {
             setMessages(prev => {
-                if (prev.find(m => m.id === e.id)) return prev;
-                
+                // Temp ID Kontrolü (Çift mesajı önlemek için)
                 if (e.temp_id) {
                     const tempMatch = prev.find(m => m.temp_id === e.temp_id);
                     if (tempMatch) {
@@ -71,6 +81,8 @@ export default function ChatScreen({ route, navigation }) {
                         } : m);
                     }
                 }
+
+                if (prev.find(m => m.id === e.id)) return prev;
 
                 const newMessage = {
                     id: e.id,
@@ -95,26 +107,26 @@ export default function ChatScreen({ route, navigation }) {
             return;
         }
 
-        console.log("Galeri açılıyor..."); // DEBUG
-
         let result = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ImagePicker.MediaTypeOptions.Images,
             allowsEditing: false, 
             quality: 0.7,
         });
 
-        console.log("Seçim Sonucu:", result); // DEBUG
-
-        if (!result.canceled && result.assets && result.assets.length > 0) {
-            console.log("Resim Set Ediliyor:", result.assets[0].uri); // DEBUG
+        if (!result.canceled) {
             setSelectedImage(result.assets[0]);
         }
+    };
+
+    // Benzersiz ID üreteci
+    const generateTempId = () => {
+        return Date.now().toString(36) + Math.random().toString(36).substr(2);
     };
 
     const handleSend = async () => {
         if (!inputText.trim() && !selectedImage) return;
         
-        const tempId = Date.now().toString(); 
+        const tempId = generateTempId();
         
         const tempMsg = {
             id: Date.now(),
@@ -171,12 +183,24 @@ export default function ChatScreen({ route, navigation }) {
 
         return (
             <View style={[styles.bubble, isMe ? styles.myBubble : styles.theirBubble]}>
+                {/* GÖRSEL GÖSTERİMİ VE İNDİRME LİNKİ */}
                 {item.type === 'image' && safeImageUrl ? (
-                    <Image 
-                        source={{ uri: safeImageUrl }} 
-                        style={styles.chatImage} 
-                        resizeMode="cover"
-                    />
+                    <View>
+                        <Image 
+                            source={{ uri: safeImageUrl }} 
+                            style={styles.chatImage} 
+                            resizeMode="cover"
+                        />
+                        {/* İNDİR / AÇ LİNKİ (BURASI EKLENDİ) */}
+                        <TouchableOpacity 
+                            onPress={() => Linking.openURL(safeImageUrl)}
+                            style={{marginTop: 5, alignSelf: 'flex-end'}}
+                        >
+                            <Text style={{color: isMe ? 'rgba(255,255,255,0.8)' : '#6366f1', fontSize: 12, textDecorationLine:'underline'}}>
+                                📥 Resmi Aç
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
                 ) : item.attachment_url ? (
                     <TouchableOpacity onPress={() => Linking.openURL(safeImageUrl)}>
                         <Text style={{color: isMe ? 'white' : 'blue', textDecorationLine: 'underline', marginBottom: 5}}>📎 Dosyayı Aç</Text>
@@ -190,6 +214,52 @@ export default function ChatScreen({ route, navigation }) {
             </View>
         );
     };
+
+    // TAM EKRAN ÖNİZLEME (Klavye Dostu)
+    if (selectedImage) {
+        return (
+            <SafeAreaView style={styles.fullScreenSafeArea}>
+                <KeyboardAvoidingView 
+                    style={{ flex: 1 }}
+                    behavior={Platform.OS === "ios" ? "padding" : "height"}
+                    keyboardVerticalOffset={Platform.OS === "android" ? StatusBar.currentHeight : 0}
+                >
+                    <View style={styles.fullScreenContainer}>
+                        <View style={styles.topOverlay}>
+                            <TouchableOpacity onPress={() => setSelectedImage(null)} style={styles.closeButton}>
+                                <Text style={styles.closeButtonText}>✕</Text>
+                            </TouchableOpacity>
+                        </View>
+
+                        <View style={styles.imageWrapper}>
+                            <Image 
+                                source={{ uri: selectedImage.uri }} 
+                                style={styles.fullScreenImage} 
+                                resizeMode="contain" 
+                            />
+                        </View>
+
+                        <View style={[styles.bottomOverlay, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+                            <View style={styles.captionInputContainer}>
+                                <TextInput
+                                    style={styles.captionInput}
+                                    value={inputText}
+                                    onChangeText={setInputText}
+                                    placeholder="Açıklama ekle..."
+                                    placeholderTextColor="#ccc"
+                                    multiline
+                                    autoFocus
+                                />
+                                <TouchableOpacity style={styles.sendButtonLarge} onPress={handleSend} disabled={sending}>
+                                    {sending ? <ActivityIndicator color="white" /> : <Text style={styles.sendButtonText}>➤</Text>}
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                    </View>
+                </KeyboardAvoidingView>
+            </SafeAreaView>
+        );
+    }
 
     return (
         <KeyboardAvoidingView 
@@ -209,7 +279,6 @@ export default function ChatScreen({ route, navigation }) {
                 />
             )}
 
-            {/* --- INPUT ALANI (Normal) --- */}
             <View style={[styles.inputContainer, { paddingBottom: Math.max(insets.bottom, 10) }]}>
                 <TouchableOpacity onPress={pickImage} style={styles.attachButton}>
                     <Text style={{fontSize:24}}>📷</Text>
@@ -226,60 +295,6 @@ export default function ChatScreen({ route, navigation }) {
                     <Text style={styles.sendButtonText}>➤</Text>
                 </TouchableOpacity>
             </View>
-
-            {/* --- TAM EKRAN ÖNİZLEME MODALI --- */}
-            <Modal
-                visible={selectedImage !== null}
-                animationType="slide"
-                transparent={false}
-                onRequestClose={() => setSelectedImage(null)}
-            >
-                <SafeAreaView style={styles.fullScreenSafeArea}>
-                    <KeyboardAvoidingView 
-                        style={{ flex: 1 }}
-                        behavior={Platform.OS === "ios" ? "padding" : "height"}
-                    >
-                        <View style={styles.fullScreenContainer}>
-                            {/* Üst Bar */}
-                            <View style={styles.topOverlay}>
-                                <TouchableOpacity onPress={() => setSelectedImage(null)} style={styles.closeButton}>
-                                    <Text style={styles.closeButtonText}>✕</Text>
-                                </TouchableOpacity>
-                            </View>
-
-                            {/* Resim */}
-                            <View style={styles.imageWrapper}>
-                                {selectedImage && (
-                                    <Image 
-                                        source={{ uri: selectedImage.uri }} 
-                                        style={styles.fullScreenImage} 
-                                        resizeMode="contain" 
-                                    />
-                                )}
-                            </View>
-
-                            {/* Alt Kısım (Input) */}
-                            <View style={[styles.bottomOverlay, { paddingBottom: Math.max(insets.bottom, 20) }]}>
-                                <View style={styles.captionInputContainer}>
-                                    <TextInput
-                                        style={styles.captionInput}
-                                        value={inputText}
-                                        onChangeText={setInputText}
-                                        placeholder="Açıklama ekle..."
-                                        placeholderTextColor="#ccc"
-                                        multiline
-                                        autoFocus
-                                    />
-                                    <TouchableOpacity style={styles.sendButtonLarge} onPress={handleSend} disabled={sending}>
-                                        {sending ? <ActivityIndicator color="white" /> : <Text style={styles.sendButtonText}>➤</Text>}
-                                    </TouchableOpacity>
-                                </View>
-                            </View>
-                        </View>
-                    </KeyboardAvoidingView>
-                </SafeAreaView>
-            </Modal>
-
         </KeyboardAvoidingView>
     );
 }
@@ -310,7 +325,6 @@ const styles = StyleSheet.create({
     sendButtonText: { color: 'white', fontSize: 18, fontWeight: 'bold' },
     attachButton: { marginRight: 10, padding: 5 },
 
-    // Modal Stilleri
     fullScreenSafeArea: { flex: 1, backgroundColor: 'black' },
     fullScreenContainer: { flex: 1, justifyContent: 'space-between' },
     imageWrapper: { flex: 1, justifyContent: 'center', alignItems: 'center', width: '100%', position: 'relative' },

@@ -59,13 +59,13 @@ function WidgetApp({ token }) {
     
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState([]); 
-    const [message, setMessage] = useState(''); // Normal sohbet mesajı
+    const [message, setMessage] = useState('');
     const [status, setStatus] = useState('Bağlanıyor...');
     
-    // DOSYA VE ÖNİZLEME STATE'LERİ (YENİ)
+    // DOSYA STATE'LERİ
     const [selectedFile, setSelectedFile] = useState(null);
     const [previewUrl, setPreviewUrl] = useState(null); 
-    const [caption, setCaption] = useState(''); // Resim altı yazısı
+    const [caption, setCaption] = useState(''); 
     const fileInputRef = useRef(null);
     
     // SCROLL REF
@@ -93,7 +93,7 @@ function WidgetApp({ token }) {
         }
     }, [messages, isOpen, isAgentTyping]);
 
-    // --- 1. CONFIG YÜKLEME ---
+    // --- CONFIG ---
     useEffect(() => {
         axios.get(`${API_URL}/api/chat/config?widget_token=${token}`)
             .then(res => {
@@ -108,7 +108,7 @@ function WidgetApp({ token }) {
             .catch(err => console.error("Widget Config Error:", err));
     }, [token]);
 
-    // --- 2. REVERB BAĞLANTISI ---
+    // --- REVERB ---
     useEffect(() => {
         const getEnv = (key, def) => {
             try {
@@ -172,17 +172,15 @@ function WidgetApp({ token }) {
         }
     };
 
-    // DOSYA SEÇME ve ÖNİZLEME MODUNA GEÇİŞ
     const handleFileSelect = (e) => {
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
             setSelectedFile(file);
             setPreviewUrl(URL.createObjectURL(file)); 
-            setCaption(''); // Caption sıfırla
+            setCaption(''); 
         }
     };
 
-    // İPTAL ETME
     const cancelUpload = () => {
         setSelectedFile(null);
         setPreviewUrl(null);
@@ -192,33 +190,24 @@ function WidgetApp({ token }) {
 
     const toggle = () => setIsOpen(!isOpen);
 
-    // GÖNDERME İŞLEMİ
     const send = async (e) => {
         if (e) e.preventDefault();
         
-        // Gönderilecek metin: Eğer dosya varsa caption'ı kullan, yoksa normal mesajı
         const textToSend = selectedFile ? caption : message;
-        
-        // Boş kontrolü (Dosya yoksa ve metin boşsa gönderme)
         if (!textToSend.trim() && !selectedFile) return;
         
         const tempId = Date.now();
         const msgType = selectedFile ? (selectedFile.type.startsWith('image/') ? 'image' : 'file') : 'text';
         
-        // Optimistic UI
         setMessages(prev => [...prev, { 
             id: tempId, 
             text: textToSend, 
             sender: 'visitor',
             type: msgType, 
-            // Eğer dosya varsa geçici previewUrl kullan, yoksa null
             attachment_url: selectedFile ? previewUrl : null 
         }]);
 
-        // Referansları al
         const fileToSend = selectedFile;
-        
-        // State Temizle
         setMessage('');
         setSelectedFile(null);
         setPreviewUrl(null);
@@ -229,7 +218,6 @@ function WidgetApp({ token }) {
             const formData = new FormData();
             formData.append('widget_token', token);
             formData.append('visitor_uuid', visitorUUID);
-            // DİKKAT: Boş string olsa bile gönderiyoruz ki backend 'message' keyini bulsun
             formData.append('message', textToSend || ""); 
             formData.append('current_url', window.location.href);
             
@@ -281,7 +269,6 @@ function WidgetApp({ token }) {
         input: { flex: 1, padding: '10px', borderRadius: '20px', border: '1px solid #ddd' },
         fileButton: { cursor: 'pointer', color: '#6b7280', padding: '5px', background: 'none', border: 'none' },
         
-        // --- ÖNİZLEME MODU STİLLERİ (YENİ) ---
         previewOverlay: {
             position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
             backgroundColor: 'rgba(0,0,0,0.9)', zIndex: 50,
@@ -302,7 +289,6 @@ function WidgetApp({ token }) {
             {isOpen && (
                 <div style={styles.chatWindow}>
                     
-                    {/* --- ÖNİZLEME KATMANI (WhatsApp Tarzı) --- */}
                     {selectedFile && previewUrl ? (
                         <div style={styles.previewOverlay}>
                             <div style={styles.previewHeader}>
@@ -330,7 +316,6 @@ function WidgetApp({ token }) {
                             </div>
                         </div>
                     ) : (
-                        // --- NORMAL SOHBET ---
                         <>
                             <div style={styles.header}>
                                 <div>
@@ -343,20 +328,29 @@ function WidgetApp({ token }) {
                             <div style={styles.messagesArea} ref={messagesContainerRef}>
                                 {messages.map(m => (
                                     <div key={m.id} style={{ textAlign: m.sender === 'visitor' ? 'right' : 'left', margin: '5px 0' }}>
-                                        <div style={{ display: 'inline-block', maxWidth: '80%' }}>
-                                            {/* Resim Varsa */}
+                                        <div style={{ display: 'inline-block', maxWidth: '80%', position: 'relative' }}>
+                                            {/* RESİM GÖSTERİMİ VE İNDİRME BUTONU */}
                                             {(m.type === 'image' || (m.attachment_url && m.attachment_url.match(/\.(jpeg|jpg|gif|png)$/i))) ? (
-                                                <img 
-                                                    src={m.attachment_url} 
-                                                    alt="attachment" 
-                                                    onLoad={scrollToBottom}
-                                                    style={{ borderRadius: '8px', maxWidth: '100%', marginBottom: m.text ? '5px' : '0', border: '1px solid #eee' }} 
-                                                />
+                                                <div style={{position: 'relative', display: 'inline-block'}}>
+                                                    <img 
+                                                        src={m.attachment_url} 
+                                                        alt="attachment" 
+                                                        onLoad={scrollToBottom}
+                                                        style={{ borderRadius: '8px', maxWidth: '100%', marginBottom: m.text ? '5px' : '0', border: '1px solid #eee' }} 
+                                                    />
+                                                    {/* İNDİRME İKONU (Resmin üzerine) */}
+                                                    <a href={m.attachment_url} target="_blank" download style={{
+                                                        position: 'absolute', bottom: '10px', right: '10px',
+                                                        background: 'rgba(0,0,0,0.6)', color: 'white',
+                                                        borderRadius: '50%', width: '30px', height: '30px',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                        textDecoration: 'none', fontSize: '16px', boxShadow: '0 2px 5px rgba(0,0,0,0.3)'
+                                                    }} title="İndir">⬇</a>
+                                                </div>
                                             ) : m.attachment_url ? (
-                                                <a href={m.attachment_url} target="_blank" style={{display:'block', marginBottom:'5px', color: config.color}}>📎 Dosya İndir</a>
+                                                <a href={m.attachment_url} target="_blank" style={{display:'block', marginBottom:'5px', color: config.color}}>📎 Dosyayı İndir</a>
                                             ) : null}
 
-                                            {/* Metin Varsa */}
                                             {m.text && (
                                                 <span style={{ 
                                                     background: m.sender === 'visitor' ? config.color : 'white', 
@@ -369,14 +363,6 @@ function WidgetApp({ token }) {
                                         </div>
                                     </div>
                                 ))}
-                                
-                                {isAgentTyping && (
-                                    <div style={{textAlign: 'left', margin: '5px 0'}}>
-                                        <span style={{background: '#f3f4f6', color: '#6b7280', padding:'8px', borderRadius:'8px', display:'inline-block', fontSize:'12px', fontStyle:'italic'}}>
-                                            Yazıyor...
-                                        </span>
-                                    </div>
-                                )}
                             </div>
 
                             <form style={styles.footer} onSubmit={send}>
@@ -387,7 +373,6 @@ function WidgetApp({ token }) {
                                     onChange={handleFileSelect} 
                                     accept="image/*,.pdf,.doc,.docx" 
                                 />
-                                
                                 <button 
                                     type="button" 
                                     style={styles.fileButton} 
