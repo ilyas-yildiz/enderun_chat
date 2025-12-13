@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState, useCallback, useRef } from 'react';
+﻿import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
@@ -11,8 +11,9 @@ import Constants from 'expo-constants';
 
 window.Pusher = Pusher;
 
-// --- GÜVENLİ BİLDİRİM HANDLER ---
-// Expo Go'da bu kısım hata fırlatabilir, o yüzden try-catch ile sarıyoruz.
+// --- GÜVENLİ BİLDİRİM HANDLER (CRASH FIX) ---
+// Expo Go SDK 53+ Android sürümünde bildirimler kaldırıldığı için bu kod hata verir.
+// Try-catch ile sararak uygulamanın çökmesini engelliyoruz.
 try {
     Notifications.setNotificationHandler({
         handleNotification: async () => ({
@@ -22,7 +23,7 @@ try {
         }),
     });
 } catch (error) {
-    console.warn("Bildirim sistemi başlatılamadı (Expo Go kısıtlaması olabilir).");
+    console.log("Bildirim handler başlatılamadı (Expo Go kısıtlaması, güvenle yoksayılabilir).");
 }
 
 export default function HomeScreen({ navigation }) {
@@ -41,29 +42,27 @@ export default function HomeScreen({ navigation }) {
         getUser();
     }, []);
 
-    // 2. BİLDİRİM İZNİ VE TOKEN ALMA (GÜVENLİ)
+    // 2. BİLDİRİM İZNİ VE TOKEN ALMA
     useEffect(() => {
+        // Hata durumunda uygulamayı çökertmemesi için catch bloğu
         registerForPushNotificationsAsync()
             .then(token => {
                 if (token) {
                     setExpoPushToken(token);
                     saveTokenToBackend(token);
-                } else {
-                    console.log("Push Token alınamadı (Emülatör veya Expo Go kısıtlaması).");
                 }
             })
             .catch(err => {
-                console.log("Bildirim servisi hatası:", err);
+                console.log("Bildirim servisi başlatılamadı:", err);
             });
     }, []);
 
     const saveTokenToBackend = async (token) => {
         try {
-            console.log("Token Backend'e gönderiliyor:", token);
+            // Token'ı sessizce kaydet, log kalabalığı yapmasın
             await api.post('/user/device-token', { token });
-            console.log("✅ Token başarıyla kaydedildi.");
         } catch (error) {
-            console.error("Token kaydetme hatası:", error);
+            console.log("Token kaydetme hatası (Yoksayılabilir):", error.message);
         }
     };
 
@@ -256,7 +255,7 @@ export default function HomeScreen({ navigation }) {
 async function registerForPushNotificationsAsync() {
   let token;
 
-  // Expo Go SDK 53+ ile gelen Android kısıtlamasını bypass etmek için try-catch
+  // Expo Go SDK 53+ Android hatasını önlemek için try-catch
   try {
       if (Platform.OS === 'android') {
         await Notifications.setNotificationChannelAsync('default', {
@@ -268,9 +267,7 @@ async function registerForPushNotificationsAsync() {
       }
 
       if (Device.isDevice) {
-        // İzin kontrolü sırasında hata verirse yakala
         const { status: existingStatus } = await Notifications.getPermissionsAsync().catch(() => ({ status: 'undetermined' }));
-        
         let finalStatus = existingStatus;
         if (existingStatus !== 'granted') {
           const { status } = await Notifications.requestPermissionsAsync().catch(() => ({ status: 'denied' }));
@@ -278,14 +275,11 @@ async function registerForPushNotificationsAsync() {
         }
         
         if (finalStatus !== 'granted') {
-          console.log('Bildirim izni alınamadı (Expo Go kısıtlaması olabilir).');
+          console.log('Bildirim izni verilmedi (Expo Go kısıtlaması olabilir).');
           return;
         }
         
-        // Token alma kısmı
         const projectId = Constants?.expoConfig?.extra?.eas?.projectId ?? Constants?.easConfig?.projectId;
-        
-        // Burası Expo Go'da hata fırlatırsa catch bloğuna düşer
         const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
         token = tokenData.data;
         console.log("📱 Expo Push Token:", token);
@@ -293,7 +287,7 @@ async function registerForPushNotificationsAsync() {
         console.log('Bildirimler emülatörde çalışmaz, fiziksel cihaz gerekir.');
       }
   } catch (error) {
-      console.warn("Bildirim sistemi uyarı (Görmezden gelinebilir):", error.message);
+      console.log("Bildirim servisi uyarısı (Güvenle yoksayılabilir):", error.message);
       return null;
   }
 
