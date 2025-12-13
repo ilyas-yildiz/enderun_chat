@@ -1,5 +1,5 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ActivityIndicator, Image, Linking, Alert, SafeAreaView, StatusBar } from 'react-native';
+﻿import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ActivityIndicator, Image, Linking, Alert, SafeAreaView, StatusBar, Modal } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import api, { REVERB_CONFIG } from '../services/api';
 import Echo from 'laravel-echo';
@@ -9,15 +9,24 @@ import * as ImagePicker from 'expo-image-picker';
 window.Pusher = Pusher;
 
 export default function ChatScreen({ route, navigation }) {
-    const { conversationId } = route.params;
+    const { conversationId } = route.params; 
     const [messages, setMessages] = useState([]);
     const [inputText, setInputText] = useState('');
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
     const [selectedImage, setSelectedImage] = useState(null);
 
-    // Güvenli alan ölçülerini al
-    const insets = useSafeAreaInsets();
+    const insets = useSafeAreaInsets(); 
+
+    // --- YARDIMCI: URL DÜZELTİCİ ---
+    const fixImageUrl = (url) => {
+        if (!url) return null;
+        if (url.startsWith('http') && !url.includes('localhost')) return url;
+        const baseUrl = api.defaults.baseURL.replace('/api', ''); 
+        if (url.includes('localhost')) return url.replace('http://localhost', baseUrl);
+        if (url.startsWith('/')) return `${baseUrl}${url}`;
+        return url;
+    };
 
     // 1. İLK YÜKLEME
     useEffect(() => {
@@ -35,7 +44,7 @@ export default function ChatScreen({ route, navigation }) {
         fetchMessages();
     }, [conversationId]);
 
-    // 2. REAL-TIME BAĞLANTI (GÜNCELLENDİ: Temp ID Kontrolü)
+    // 2. REAL-TIME BAĞLANTI
     useEffect(() => {
         const echo = new Echo({
             ...REVERB_CONFIG,
@@ -46,13 +55,11 @@ export default function ChatScreen({ route, navigation }) {
 
         channel.listen('.message.sent', (e) => {
             setMessages(prev => {
-                // 1. Temp ID Kontrolü: Eğer gelen mesajın temp_id'si listemizde varsa,
-                // o geçici mesajı silip yerine gerçek (sunucudan gelen) mesajı koyuyoruz.
+                if (prev.find(m => m.id === e.id)) return prev;
+                
                 if (e.temp_id) {
                     const tempMatch = prev.find(m => m.temp_id === e.temp_id);
                     if (tempMatch) {
-                        // Eşleşme bulundu! Listeyi güncelle:
-                        // Map ile dönüyoruz, ID'si temp_id ile uyuşanı yenisiyle değiştiriyoruz.
                         return prev.map(m => m.temp_id === e.temp_id ? {
                             id: e.id,
                             text: e.body,
@@ -60,15 +67,11 @@ export default function ChatScreen({ route, navigation }) {
                             is_admin: e.sender_type === 'App\\Models\\User',
                             type: e.type,
                             attachment_url: e.attachment_url,
-                            temp_id: null // Artık temp değil
+                            temp_id: null
                         } : m);
                     }
                 }
 
-                // 2. Normal ID Kontrolü: Çift eklemeyi önle
-                if (prev.find(m => m.id === e.id)) return prev;
-
-                // 3. Yeni mesajı ekle
                 const newMessage = {
                     id: e.id,
                     text: e.body,
@@ -92,30 +95,30 @@ export default function ChatScreen({ route, navigation }) {
             return;
         }
 
+        console.log("Galeri açılıyor..."); // DEBUG
+
         let result = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            allowsEditing: false,
+            allowsEditing: false, 
             quality: 0.7,
         });
 
-        if (!result.canceled) {
+        console.log("Seçim Sonucu:", result); // DEBUG
+
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+            console.log("Resim Set Ediliyor:", result.assets[0].uri); // DEBUG
             setSelectedImage(result.assets[0]);
         }
     };
 
-    // Benzersiz ID üreteci
-    const generateTempId = () => {
-        return Date.now().toString(36) + Math.random().toString(36).substr(2);
-    };
-
     const handleSend = async () => {
         if (!inputText.trim() && !selectedImage) return;
-
-        const tempId = generateTempId(); // Benzersiz geçici ID
-
+        
+        const tempId = Date.now().toString(); 
+        
         const tempMsg = {
-            id: Date.now(), // React key için
-            temp_id: tempId, // Eşleştirme için kritik
+            id: Date.now(),
+            temp_id: tempId,
             text: inputText,
             is_admin: true,
             createdAt: new Date().toISOString(),
@@ -124,26 +127,26 @@ export default function ChatScreen({ route, navigation }) {
         };
 
         setMessages(prev => [tempMsg, ...prev]);
-
+        
         const textToSend = inputText;
         const imageToSend = selectedImage;
-
-        // UI Temizle
+        
         setInputText('');
-        setSelectedImage(null);
+        setSelectedImage(null); // Modal Kapanır
         setSending(true);
 
         try {
             const formData = new FormData();
             if (textToSend) formData.append('message', textToSend);
-            formData.append('temp_id', tempId); // Backend'e gönderiyoruz
-
+            formData.append('temp_id', tempId);
+            
             if (imageToSend) {
                 const localUri = imageToSend.uri;
                 const filename = localUri.split('/').pop();
                 const match = /\.(\w+)$/.exec(filename);
                 const type = match ? `image/${match[1]}` : `image`;
 
+                // React Native FormData formatı
                 formData.append('attachment', {
                     uri: localUri,
                     name: filename,
@@ -164,17 +167,19 @@ export default function ChatScreen({ route, navigation }) {
 
     const renderItem = ({ item }) => {
         const isMe = item.is_admin;
+        const safeImageUrl = fixImageUrl(item.attachment_url);
+
         return (
             <View style={[styles.bubble, isMe ? styles.myBubble : styles.theirBubble]}>
-                {item.type === 'image' && item.attachment_url ? (
-                    <Image
-                        source={{ uri: item.attachment_url }}
-                        style={styles.chatImage}
+                {item.type === 'image' && safeImageUrl ? (
+                    <Image 
+                        source={{ uri: safeImageUrl }} 
+                        style={styles.chatImage} 
                         resizeMode="cover"
                     />
                 ) : item.attachment_url ? (
-                    <TouchableOpacity onPress={() => Linking.openURL(item.attachment_url)}>
-                        <Text style={{ color: isMe ? 'white' : 'blue', textDecorationLine: 'underline', marginBottom: 5 }}>📎 Dosyayı Aç</Text>
+                    <TouchableOpacity onPress={() => Linking.openURL(safeImageUrl)}>
+                        <Text style={{color: isMe ? 'white' : 'blue', textDecorationLine: 'underline', marginBottom: 5}}>📎 Dosyayı Aç</Text>
                     </TouchableOpacity>
                 ) : null}
 
@@ -186,55 +191,9 @@ export default function ChatScreen({ route, navigation }) {
         );
     };
 
-    // --- RESİM SEÇİLDİYSE TAM EKRAN ONAY MODU ---
-    if (selectedImage) {
-        return (
-            <SafeAreaView style={styles.fullScreenSafeArea}>
-                <KeyboardAvoidingView
-                    style={{ flex: 1 }}
-                    behavior={Platform.OS === "ios" ? "padding" : "height"}
-                    keyboardVerticalOffset={Platform.OS === "android" ? StatusBar.currentHeight : 0}
-                >
-                    <View style={styles.fullScreenContainer}>
-                        <View style={styles.topOverlay}>
-                            <TouchableOpacity onPress={() => setSelectedImage(null)} style={styles.closeButton}>
-                                <Text style={styles.closeButtonText}>✕</Text>
-                            </TouchableOpacity>
-                        </View>
-
-                        <View style={styles.imageWrapper}>
-                            <Image
-                                source={{ uri: selectedImage.uri }}
-                                style={styles.fullScreenImage}
-                                resizeMode="contain"
-                            />
-                        </View>
-
-                        <View style={[styles.bottomOverlay, { paddingBottom: Math.max(insets.bottom, 10) }]}>
-                            <View style={styles.captionInputContainer}>
-                                <TextInput
-                                    style={styles.captionInput}
-                                    value={inputText}
-                                    onChangeText={setInputText}
-                                    placeholder="Açıklama ekle..."
-                                    placeholderTextColor="#ccc"
-                                    multiline
-                                />
-                                <TouchableOpacity style={styles.sendButtonLarge} onPress={handleSend} disabled={sending}>
-                                    {sending ? <ActivityIndicator color="white" /> : <Text style={styles.sendButtonText}>➤</Text>}
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-                    </View>
-                </KeyboardAvoidingView>
-            </SafeAreaView>
-        );
-    }
-
-    // --- NORMAL SOHBET MODU ---
     return (
-        <KeyboardAvoidingView
-            style={styles.container}
+        <KeyboardAvoidingView 
+            style={styles.container} 
             behavior={Platform.OS === "ios" ? "padding" : "height"}
             keyboardVerticalOffset={100}
         >
@@ -245,14 +204,15 @@ export default function ChatScreen({ route, navigation }) {
                     data={messages}
                     renderItem={renderItem}
                     keyExtractor={item => item.id.toString()}
-                    inverted
+                    inverted 
                     contentContainerStyle={{ padding: 15 }}
                 />
             )}
 
+            {/* --- INPUT ALANI (Normal) --- */}
             <View style={[styles.inputContainer, { paddingBottom: Math.max(insets.bottom, 10) }]}>
                 <TouchableOpacity onPress={pickImage} style={styles.attachButton}>
-                    <Text style={{ fontSize: 24 }}>📷</Text>
+                    <Text style={{fontSize:24}}>📷</Text>
                 </TouchableOpacity>
 
                 <TextInput
@@ -266,6 +226,60 @@ export default function ChatScreen({ route, navigation }) {
                     <Text style={styles.sendButtonText}>➤</Text>
                 </TouchableOpacity>
             </View>
+
+            {/* --- TAM EKRAN ÖNİZLEME MODALI --- */}
+            <Modal
+                visible={selectedImage !== null}
+                animationType="slide"
+                transparent={false}
+                onRequestClose={() => setSelectedImage(null)}
+            >
+                <SafeAreaView style={styles.fullScreenSafeArea}>
+                    <KeyboardAvoidingView 
+                        style={{ flex: 1 }}
+                        behavior={Platform.OS === "ios" ? "padding" : "height"}
+                    >
+                        <View style={styles.fullScreenContainer}>
+                            {/* Üst Bar */}
+                            <View style={styles.topOverlay}>
+                                <TouchableOpacity onPress={() => setSelectedImage(null)} style={styles.closeButton}>
+                                    <Text style={styles.closeButtonText}>✕</Text>
+                                </TouchableOpacity>
+                            </View>
+
+                            {/* Resim */}
+                            <View style={styles.imageWrapper}>
+                                {selectedImage && (
+                                    <Image 
+                                        source={{ uri: selectedImage.uri }} 
+                                        style={styles.fullScreenImage} 
+                                        resizeMode="contain" 
+                                    />
+                                )}
+                            </View>
+
+                            {/* Alt Kısım (Input) */}
+                            <View style={[styles.bottomOverlay, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+                                <View style={styles.captionInputContainer}>
+                                    <TextInput
+                                        style={styles.captionInput}
+                                        value={inputText}
+                                        onChangeText={setInputText}
+                                        placeholder="Açıklama ekle..."
+                                        placeholderTextColor="#ccc"
+                                        multiline
+                                        autoFocus
+                                    />
+                                    <TouchableOpacity style={styles.sendButtonLarge} onPress={handleSend} disabled={sending}>
+                                        {sending ? <ActivityIndicator color="white" /> : <Text style={styles.sendButtonText}>➤</Text>}
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                        </View>
+                    </KeyboardAvoidingView>
+                </SafeAreaView>
+            </Modal>
+
         </KeyboardAvoidingView>
     );
 }
@@ -282,37 +296,35 @@ const styles = StyleSheet.create({
     myDate: { color: '#e0e7ff' },
     theirDate: { color: '#9ca3af' },
     chatImage: { width: 200, height: 150, borderRadius: 8, marginBottom: 5, backgroundColor: '#e5e7eb' },
-
-    inputContainer: {
-        flexDirection: 'row',
-        padding: 10,
-        backgroundColor: 'white',
-        borderTopWidth: 1,
-        borderTopColor: '#e5e7eb',
-        alignItems: 'center'
+    
+    inputContainer: { 
+        flexDirection: 'row', 
+        padding: 10, 
+        backgroundColor: 'white', 
+        borderTopWidth: 1, 
+        borderTopColor: '#e5e7eb', 
+        alignItems: 'center' 
     },
     input: { flex: 1, backgroundColor: '#f9fafb', borderRadius: 20, paddingHorizontal: 15, paddingVertical: 10, maxHeight: 100, borderWidth: 1, borderColor: '#e5e7eb' },
     sendButton: { marginLeft: 10, backgroundColor: '#4F46E5', width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
     sendButtonText: { color: 'white', fontSize: 18, fontWeight: 'bold' },
     attachButton: { marginRight: 10, padding: 5 },
 
+    // Modal Stilleri
     fullScreenSafeArea: { flex: 1, backgroundColor: 'black' },
     fullScreenContainer: { flex: 1, justifyContent: 'space-between' },
-
     imageWrapper: { flex: 1, justifyContent: 'center', alignItems: 'center', width: '100%', position: 'relative' },
     fullScreenImage: { width: '100%', height: '100%' },
-
-    topOverlay: {
-        position: 'absolute',
-        top: 20,
-        right: 20,
-        zIndex: 20
+    topOverlay: { 
+        position: 'absolute', 
+        top: 20, 
+        right: 20, 
+        zIndex: 20 
     },
     closeButton: { backgroundColor: 'rgba(0,0,0,0.5)', width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
     closeButtonText: { color: 'white', fontSize: 20, fontWeight: 'bold' },
-
-    bottomOverlay: {
-        backgroundColor: 'rgba(0,0,0,0.8)',
+    bottomOverlay: { 
+        backgroundColor: 'rgba(0,0,0,0.8)', 
         padding: 10,
         width: '100%'
     },
