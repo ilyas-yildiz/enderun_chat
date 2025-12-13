@@ -1,7 +1,7 @@
 ﻿import axios from 'axios';
 
 // BİLGİSAYARININ YEREL IP ADRESİ
-const LOCAL_IP = '192.168.0.2';
+const LOCAL_IP = '192.168.0.4';
 
 // HTTP Bağlantısı (API)
 const PUBLIC_URL = `http://${LOCAL_IP}`;
