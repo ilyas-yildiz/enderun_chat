@@ -20,13 +20,15 @@ class ChatController extends Controller
             $validated = $request->validate([
                 'widget_token' => 'required|uuid|exists:websites,widget_token',
                 'visitor_uuid' => 'required|uuid', 
-                'message' => 'nullable|string|max:1000', // Mesaj boş olabilir (sadece resim varsa)
-                // Dosya validasyonu: Maks 10MB, resim veya döküman
+                'message' => 'nullable|string|max:1000',
                 'attachment' => 'nullable|file|max:10240|mimes:jpeg,png,jpg,gif,pdf,doc,docx,xls,xlsx', 
             ]);
 
-            // Eğer ne mesaj ne de dosya varsa hata ver
-            if (!$request->hasFile('attachment') && empty($validated['message'])) {
+            // Mesaj ve Dosya Kontrolü
+            // $request->input('message') kullanarak güvenli erişim sağlıyoruz.
+            $messageContent = $request->input('message');
+
+            if (!$request->hasFile('attachment') && empty($messageContent)) {
                 return response()->json(['error' => 'Mesaj veya dosya göndermelisiniz.'], 422);
             }
 
@@ -51,7 +53,6 @@ class ChatController extends Controller
             );
 
             // --- ZİYARETÇİ BİLGİLERİNİ GÜNCELLE ---
-            // (Mevcut kodlarınız korundu)
             $browser = 'Diğer';
             if (str_contains($userAgent, 'Chrome')) $browser = 'Chrome';
             elseif (str_contains($userAgent, 'Firefox')) $browser = 'Firefox';
@@ -113,8 +114,13 @@ class ChatController extends Controller
             }
 
             // 6. Mesajı Kaydet
+            // Eğer mesaj boşsa ve dosya varsa, body kısmına otomatik metin ekle
+            if (empty($messageContent) && $attachmentPath) {
+                $messageContent = ($type === 'image') ? '📷 Resim' : '📎 Dosya';
+            }
+
             $message = $conversation->messages()->create([
-                'body' => $validated['message'],
+                'body' => $messageContent,
                 'sender_type' => Visitor::class,
                 'sender_id' => $visitor->id,
                 'type' => $type,
