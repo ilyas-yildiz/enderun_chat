@@ -42,4 +42,18 @@ class AuthController extends Controller
         $request->user()->currentAccessToken()->delete();
         return response()->json(['message' => 'Çıkış yapıldı']);
     }
+
+        public function updateDeviceToken(Request $request)
+    {
+        $request->validate([
+            'token' => 'required|string',
+        ]);
+
+        // Giriş yapmış kullanıcının tokenını güncelle
+        $request->user()->update([
+            'expo_push_token' => $request->token
+        ]);
+
+        return response()->json(['message' => 'Token kaydedildi']);
+    }
 }
